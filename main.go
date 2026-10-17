@@ -4,6 +4,7 @@ import (
 	"DanchoAtanasov/loot/items"
 	"fmt"
 	"math/rand/v2"
+	"sort"
 )
 
 var tierOrder = []items.ItemTier{
@@ -22,7 +23,7 @@ func rollTier(distributions map[items.ItemTier]int) items.ItemTier {
 		}
 
 		distribution := distributions[tier]
-		fmt.Printf("Rolling %d with %d\n", tier, distribution)
+		// fmt.Printf("Rolling %d with %d\n", tier, distribution)
 
 		roll = rand.IntN(100)
 		if roll < distribution {
@@ -49,9 +50,28 @@ func choose(pool []items.Item) items.Item {
 	return choice
 }
 
-func main() {
-	fmt.Println("Main")
+func dropItem(distributions map[items.ItemTier]int) items.Item {
+	// total := 100
+	roll := rollTier(distributions)
+	// fmt.Printf("Rolled '%d' with chance %.3f\n", roll, float64(distributions[roll])/float64(total))
 
+	var pool []items.Item
+	switch roll {
+	case items.NormalTier:
+		pool = items.NormalPool
+	case items.MagicTier:
+		pool = items.MagicPool
+	case items.RareTier:
+		pool = items.RarePool
+	case items.UniqueTier:
+		pool = items.UniquePool
+	}
+
+	return choose(pool)
+
+}
+
+func main() {
 	distributions := map[items.ItemTier]int{
 		items.UniqueTier: 2,
 		items.RareTier:   8,
@@ -66,28 +86,33 @@ func main() {
 		panic("Total isn't 100")
 	}
 
-	// var items []Item = make([]Item, 0)
-	// items = Populate(items, distributions)
-	// fmt.Println(len(items))
-	roll := rollTier(distributions)
-	fmt.Printf("Rolled '%d' with chance %.3f\n", roll, float64(distributions[roll])/float64(total))
+	simulations := 100_000
+	results := make(map[items.Item]int)
+	for i := 0; i < simulations; i++ {
+		item := dropItem(distributions)
+		// fmt.Println(item)
+		results[item]++
+	}
+	// fmt.Println(results)
 
-	var item items.Item
-	var pool []items.Item
-	switch roll {
-	case items.NormalTier:
-		pool = items.NormalPool
-	case items.MagicTier:
-		pool = items.MagicPool
-	case items.RareTier:
-		pool = items.RarePool
-	case items.UniqueTier:
-		pool = items.UniquePool
+	// for k, v := range results {
+	// 	fmt.Printf("%s -> %d, (%d%%)\n", k.Name, v, int((float64(v)/float64(simulations))*100))
+	// }
+
+	keys := make([]items.Item, 0, len(results))
+	for k := range results {
+		keys = append(keys, k)
 	}
 
-	item = choose(pool)
-	// item = pool[rand.IntN(len(pool))]
-	fmt.Println(item)
-	// fmt.Printf("chance %.3f\n", float64(distributions[drop.tier])/float64(total))
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i].Name < keys[j].Name
+	})
+
+	for _, k := range keys {
+		v := results[k]
+		fmt.Printf("%s -> %d, (%.1f%%)\n",
+			k.Name, v, (float64(v)/float64(simulations))*100)
+	}
+
 	return
 }
