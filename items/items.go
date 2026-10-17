@@ -11,9 +11,18 @@ const (
 
 type Item struct {
 	Name     string
-	Damage   int
 	Tier     ItemTier
 	Disabled bool
+}
+
+type Weapon struct {
+	Item
+	Damage int
+}
+
+type Armour struct {
+	Item
+	Defence int
 }
 
 type weaponStats struct {
@@ -21,7 +30,7 @@ type weaponStats struct {
 	MaxDamage int
 }
 
-var Stats = map[Item]weaponStats{
+var Stats = map[Weapon]weaponStats{
 	// Normal
 	Sword:  {MinDamage: 1, MaxDamage: 2},
 	Bow:    {MinDamage: 1, MaxDamage: 2},
@@ -38,66 +47,66 @@ var Stats = map[Item]weaponStats{
 }
 
 // Instances
-var Sword = Item{
+var Sword = Weapon{
 	Name: "Sword",
 	Tier: NormalTier,
 }
 
-var Bow = Item{
+var Bow = Weapon{
 	Name: "Bow",
 	Tier: NormalTier,
 }
 
-var Spear = Item{
+var Spear = Weapon{
 	Name: "Spear",
 	Tier: NormalTier,
 }
 
-var Dagger = Item{
+var Dagger = Weapon{
 	Name: "Dagger",
 	Tier: NormalTier,
 }
 
-var NormalPool = []Item{
+var NormalPool = []Weapon{
 	Sword, Bow, Spear, Dagger,
 }
 
 // Magic
-var EnchantedSword = Item{
+var EnchantedSword = Weapon{
 	Name: "EnchantedSword",
 	Tier: MagicTier,
 }
 
-var FlamingBow = Item{
+var FlamingBow = Weapon{
 	Name: "FlamingBow",
 	Tier: MagicTier,
 }
 
-var MagicPool = []Item{
+var MagicPool = []Weapon{
 	EnchantedSword, FlamingBow,
 }
 
 // Rare
-var CursedSword = Item{
+var CursedSword = Weapon{
 	Name: "CursedSword",
 	Tier: RareTier,
 }
 
-var RarePool = []Item{
+var RarePool = []Weapon{
 	CursedSword,
 }
 
 // Unique
-var Excalibur = Item{
+var Excalibur = Weapon{
 	Name: "Excalibur",
 	Tier: UniqueTier,
 }
 
-var Trident = Item{
+var Trident = Weapon{
 	Name: "Trident",
 	Tier: UniqueTier,
 }
 
-var UniquePool = []Item{
+var UniquePool = []Weapon{
 	Excalibur, Trident,
 }

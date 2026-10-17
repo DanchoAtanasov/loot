@@ -33,10 +33,10 @@ func rollTier(distributions map[items.ItemTier]int) items.ItemTier {
 	panic("We shouldn't be here")
 }
 
-func choose(pool []items.Item) items.Item {
+func choose(pool []items.Weapon) items.Weapon {
 	// Use best score random selection algorithm
 	bestScore := -1.0
-	var choice items.Item
+	var choice items.Weapon
 	for _, item := range pool {
 		if item.Disabled {
 			continue
@@ -50,12 +50,12 @@ func choose(pool []items.Item) items.Item {
 	return choice
 }
 
-func dropItem(distributions map[items.ItemTier]int) items.Item {
+func dropItem(distributions map[items.ItemTier]int) items.Weapon {
 	// total := 100
 	roll := rollTier(distributions)
 	// fmt.Printf("Rolled '%d' with chance %.3f\n", roll, float64(distributions[roll])/float64(total))
 
-	var pool []items.Item
+	var pool []items.Weapon
 	switch roll {
 	case items.NormalTier:
 		pool = items.NormalPool
@@ -94,8 +94,8 @@ func main() {
 	}
 
 	// simulations := 1_000_000
-	simulations := 5
-	results := make(map[items.Item]int)
+	simulations := 100
+	results := make(map[items.Weapon]int)
 	for i := 0; i < simulations; i++ {
 		item := dropItem(distributions)
 		fmt.Println(item)
@@ -107,7 +107,7 @@ func main() {
 	// 	fmt.Printf("%s -> %d, (%d%%)\n", k.Name, v, int((float64(v)/float64(simulations))*100))
 	// }
 
-	keys := make([]items.Item, 0, len(results))
+	keys := make([]items.Weapon, 0, len(results))
 	for k := range results {
 		keys = append(keys, k)
 	}
