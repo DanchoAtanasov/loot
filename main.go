@@ -32,6 +32,23 @@ func rollTier(distributions map[items.ItemTier]int) items.ItemTier {
 	panic("We shouldn't be here")
 }
 
+func choose(pool []items.Item) items.Item {
+	// Use best score random selection algorithm
+	bestScore := -1.0
+	var choice items.Item
+	for _, item := range pool {
+		if item.Disabled {
+			continue
+		}
+		score := rand.Float64()
+		if score > bestScore {
+			bestScore = score
+			choice = item
+		}
+	}
+	return choice
+}
+
 func main() {
 	fmt.Println("Main")
 
@@ -68,7 +85,8 @@ func main() {
 		pool = items.UniquePool
 	}
 
-	item = pool[rand.IntN(len(pool))]
+	item = choose(pool)
+	// item = pool[rand.IntN(len(pool))]
 	fmt.Println(item)
 	// fmt.Printf("chance %.3f\n", float64(distributions[drop.tier])/float64(total))
 	return

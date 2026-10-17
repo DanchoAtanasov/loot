@@ -10,9 +10,10 @@ const (
 )
 
 type Item struct {
-	Name   string
-	Damage int
-	Tier   ItemTier
+	Name     string
+	Damage   int
+	Tier     ItemTier
+	Disabled bool
 }
 
 // Instances
