@@ -86,7 +86,7 @@ func main() {
 		panic("Total isn't 100")
 	}
 
-	simulations := 100_000
+	simulations := 1_000_000
 	results := make(map[items.Item]int)
 	for i := 0; i < simulations; i++ {
 		item := dropItem(distributions)

@@ -35,8 +35,14 @@ var Spear = Item{
 	Tier:   NormalTier,
 }
 
+var Dagger = Item{
+	Name:   "Dagger",
+	Damage: 1,
+	Tier:   NormalTier,
+}
+
 var NormalPool = []Item{
-	Sword, Bow, Spear,
+	Sword, Bow, Spear, Dagger,
 }
 
 // Magic
@@ -74,6 +80,12 @@ var Excalibur = Item{
 	Tier:   UniqueTier,
 }
 
+var Trident = Item{
+	Name:   "Trident",
+	Damage: 10,
+	Tier:   UniqueTier,
+}
+
 var UniquePool = []Item{
-	Excalibur,
+	Excalibur, Trident,
 }
