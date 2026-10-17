@@ -26,6 +26,7 @@ func Populate(items []Item, distributions map[ItemTier]int) []Item {
 		for j := 0; j < number; j++ {
 			items = append(items, Item{name: fmt.Sprintf("%d name", i), damage: 1, tier: tier})
 		}
+		i++
 	}
 	return items
 }
