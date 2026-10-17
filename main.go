@@ -1,49 +1,24 @@
 package main
 
 import (
+	"DanchoAtanasov/loot/items"
 	"fmt"
 	"math/rand/v2"
 )
 
-type ItemTier int
-
-const (
-	NormalTier ItemTier = iota
-	MagicTier
-	RareTier
-	UniqueTier
-)
-
-type Item struct {
-	name   string
-	damage int
-	tier   ItemTier
+var tierOrder = []items.ItemTier{
+	items.UniqueTier,
+	items.RareTier,
+	items.MagicTier,
+	items.NormalTier,
 }
 
-func Populate(items []Item, distributions map[ItemTier]int) []Item {
-	i := 0
-	for tier, number := range distributions {
-		for j := 0; j < number; j++ {
-			items = append(items, Item{name: fmt.Sprintf("%d name", i), damage: 1, tier: tier})
-		}
-		i++
-	}
-	return items
-}
-
-var tierOrder = []ItemTier{
-	UniqueTier,
-	RareTier,
-	MagicTier,
-	NormalTier,
-}
-
-func rollTier(distributions map[ItemTier]int) ItemTier {
+func rollTier(distributions map[items.ItemTier]int) items.ItemTier {
 	// Use cascading rolls
 	var roll int
 	for _, tier := range tierOrder {
-		if tier == NormalTier {
-			return NormalTier
+		if tier == items.NormalTier {
+			return items.NormalTier
 		}
 
 		distribution := distributions[tier]
@@ -60,11 +35,11 @@ func rollTier(distributions map[ItemTier]int) ItemTier {
 func main() {
 	fmt.Println("Main")
 
-	distributions := map[ItemTier]int{
-		UniqueTier: 2,
-		RareTier:   8,
-		MagicTier:  20,
-		NormalTier: 70,
+	distributions := map[items.ItemTier]int{
+		items.UniqueTier: 2,
+		items.RareTier:   8,
+		items.MagicTier:  20,
+		items.NormalTier: 70,
 	}
 	total := 0
 	for _, count := range distributions {
@@ -79,8 +54,22 @@ func main() {
 	// fmt.Println(len(items))
 	roll := rollTier(distributions)
 	fmt.Printf("Rolled '%d' with chance %.3f\n", roll, float64(distributions[roll])/float64(total))
-	// drop := Drop(items)
-	// fmt.Println(drop)
+
+	var item items.Item
+	var pool []items.Item
+	switch roll {
+	case items.NormalTier:
+		pool = items.NormalPool
+	case items.MagicTier:
+		pool = items.MagicPool
+	case items.RareTier:
+		pool = items.RarePool
+	case items.UniqueTier:
+		pool = items.UniquePool
+	}
+
+	item = pool[rand.IntN(len(pool))]
+	fmt.Println(item)
 	// fmt.Printf("chance %.3f\n", float64(distributions[drop.tier])/float64(total))
 	return
 }
