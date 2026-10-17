@@ -67,7 +67,14 @@ func dropItem(distributions map[items.ItemTier]int) items.Item {
 		pool = items.UniquePool
 	}
 
-	return choose(pool)
+	item := choose(pool)
+
+	stat, exist := items.Stats[item]
+	if exist {
+		item.Damage = rand.IntN(stat.MaxDamage-stat.MinDamage+1) + stat.MinDamage
+	}
+
+	return item
 
 }
 
@@ -86,11 +93,12 @@ func main() {
 		panic("Total isn't 100")
 	}
 
-	simulations := 1_000_000
+	// simulations := 1_000_000
+	simulations := 5
 	results := make(map[items.Item]int)
 	for i := 0; i < simulations; i++ {
 		item := dropItem(distributions)
-		// fmt.Println(item)
+		fmt.Println(item)
 		results[item]++
 	}
 	// fmt.Println(results)
