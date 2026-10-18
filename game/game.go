@@ -12,6 +12,7 @@ import (
 	"time"
 	"unsafe"
 
+	"DanchoAtanasov/loot/items"
 	"DanchoAtanasov/loot/models"
 )
 
@@ -41,6 +42,7 @@ type enemy struct {
 
 type player struct {
 	models.Player
+	weapon   items.Weapon
 	x, y     int
 	facing   byte
 	lastMove time.Time
@@ -50,6 +52,11 @@ type player struct {
 type healthPickup struct {
 	x int
 	y int
+}
+
+type weaponDrop struct {
+	weapon items.Weapon
+	x, y   int
 }
 
 func Run() {
@@ -70,6 +77,7 @@ func Run() {
 	playerX, playerY := chamberCenter(width, height)
 	hero := player{
 		Player:   models.DefaultPlayer,
+		weapon:   items.Weapon{},
 		x:        playerX,
 		y:        playerY,
 		facing:   's',
@@ -77,6 +85,7 @@ func Run() {
 	}
 	foes := []enemy{newEnemy(width, height)}
 	pickups := make([]healthPickup, 0)
+	weaponDrops := make([]weaponDrop, 0)
 	keys := make(chan byte, 16)
 	go readKeys(keys)
 
@@ -85,7 +94,7 @@ func Run() {
 	defer ticker.Stop()
 	enemyTicker := time.NewTicker(180 * time.Millisecond)
 	defer enemyTicker.Stop()
-	enemySpawnTicker := time.NewTicker(2 * time.Second)
+	enemySpawnTicker := time.NewTicker(4 * time.Second)
 	defer enemySpawnTicker.Stop()
 	pickupTicker := time.NewTicker(10 * time.Second)
 	defer pickupTicker.Stop()
@@ -99,7 +108,12 @@ func Run() {
 		now := time.Now()
 		for i := range foes {
 			foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, width, height)
+			wasAlive := foes[i].Health > 0
 			resolveBattle(&hero, &foes[i], now)
+			if wasAlive && foes[i].Health <= 0 && rand.IntN(100) < 30 {
+				dropX, dropY := weaponDropPosition(foes[i], hero, width, height)
+				weaponDrops = append(weaponDrops, weaponDrop{weapon: items.DropItem(), x: dropX, y: dropY})
+			}
 		}
 		alive := foes[:0]
 		for _, foe := range foes {
@@ -109,6 +123,7 @@ func Run() {
 		}
 		foes = alive
 		pickups = collectHealthPickups(&hero, pickups)
+		weaponDrops = collectWeaponDrops(&hero, weaponDrops)
 
 		// Check if character should level up
 		levelUp(&hero)
@@ -116,7 +131,7 @@ func Run() {
 		// Switch the warrior's pose while idle.
 		idleTime := time.Since(hero.lastMove)
 		idleFrame := idleTime > 400*time.Millisecond && int(idleTime/(500*time.Millisecond))%2 == 1
-		fmt.Print(renderDungeon(hero, width, height, idleFrame, foes, pickups))
+		fmt.Print(renderDungeon(hero, width, height, idleFrame, foes, pickups, weaponDrops))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -144,7 +159,7 @@ func Run() {
 	}
 }
 
-func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy, pickups []healthPickup) string {
+func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy, pickups []healthPickup, weaponDrops []weaponDrop) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -190,6 +205,9 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy,
 	for _, foe := range foes {
 		drawEnemy(grid, foe, left, right, top, bottom)
 	}
+	for _, drop := range weaponDrops {
+		drawWeaponDrop(grid, drop, left, right, top, bottom)
+	}
 	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, idleFrame)
 
 	var frame bytes.Buffer
@@ -220,6 +238,8 @@ func drawHUD(grid [][]tile, hero player, foes []enemy) {
 		{fmt.Sprintf("HP %d/%d", hero.Health, hero.MaxHealth), "\x1b[38;2;232;103;103m"},
 		{"   ", ""},
 		{fmt.Sprintf("DMG %d", hero.Damage), "\x1b[38;2;222;222;210m"},
+		{"   ", ""},
+		{fmt.Sprintf("WPN %s", equippedWeaponName(hero.weapon)), "\x1b[38;2;184;204;221m"},
 		{"   ", ""},
 		{fmt.Sprintf("XP %d", hero.Experience), "\x1b[38;2;232;193;104m"},
 		{"   ", ""},
@@ -263,6 +283,67 @@ func collectHealthPickups(hero *player, pickups []healthPickup) []healthPickup {
 		remaining = append(remaining, pickup)
 	}
 	return remaining
+}
+
+func weaponDropPosition(foe enemy, hero player, width, height int) (int, int) {
+	left, right, top, bottom := chamberBounds(width, height)
+	minX, maxX := left+1, right-1
+	minY, maxY := top+1, bottom-1
+	candidates := [][2]int{
+		{foe.x + 3, foe.y},
+		{foe.x - 3, foe.y},
+		{foe.x, foe.y + 2},
+		{foe.x, foe.y - 2},
+	}
+	best := candidates[0]
+	bestDistance := -1
+	for _, candidate := range candidates {
+		x := min(max(candidate[0], minX), maxX)
+		y := min(max(candidate[1], minY), maxY)
+		distance := abs(x-hero.x) + abs(y-hero.y)
+		if distance > bestDistance {
+			best = [2]int{x, y}
+			bestDistance = distance
+		}
+	}
+	return best[0], best[1]
+}
+
+func collectWeaponDrops(hero *player, drops []weaponDrop) []weaponDrop {
+	remaining := drops[:0]
+	for _, drop := range drops {
+		touching := abs(hero.x-drop.x) <= 2 && abs(hero.y-drop.y) <= 1
+		if touching {
+			hero.weapon = drop.weapon
+			hero.Damage = drop.weapon.Damage
+			continue
+		}
+		remaining = append(remaining, drop)
+	}
+	return remaining
+}
+
+func equippedWeaponName(weapon items.Weapon) string {
+	if weapon.Name == "" {
+		return "None"
+	}
+	return weapon.Name
+}
+
+func drawWeaponDrop(grid [][]tile, drop weaponDrop, left, right, top, bottom int) {
+	if drop.x <= left || drop.x >= right || drop.y <= top || drop.y >= bottom {
+		return
+	}
+	color := "\x1b[38;2;220;220;205m"
+	switch drop.weapon.Tier {
+	case items.MagicTier:
+		color = "\x1b[38;2;113;205;232m"
+	case items.RareTier:
+		color = "\x1b[38;2;232;195;92m"
+	case items.UniqueTier:
+		color = "\x1b[38;2;225;132;220m"
+	}
+	grid[drop.y][drop.x] = tile{'w', color}
 }
 
 func drawHealthPickup(grid [][]tile, pickup healthPickup, left, right, top, bottom int) {
@@ -344,11 +425,9 @@ func drawEnemy(grid [][]tile, foe enemy, left, right, top, bottom int) {
 }
 
 func levelUp(hero *player) {
-	threshold := models.LevelThreshold[hero.Level]
-	if !(hero.Experience >= threshold) {
-		return
+	for hero.Level < len(models.LevelThreshold) && hero.Experience >= models.LevelThreshold[hero.Level] {
+		hero.Level++
 	}
-	hero.Level += 1
 }
 
 func resolveBattle(hero *player, foe *enemy, now time.Time) bool {

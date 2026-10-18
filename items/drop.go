@@ -1,7 +1,6 @@
 package items
 
 import (
-	"fmt"
 	"math/rand/v2"
 )
 
@@ -84,7 +83,6 @@ var Distributions = map[ItemTier]int{
 }
 
 func init() {
-	fmt.Println("Checking ")
 	total := 0
 	for _, count := range Distributions {
 		total += count
