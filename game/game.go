@@ -34,10 +34,9 @@ type tile struct {
 
 type enemy struct {
 	models.Enemy
-	x, y      int
-	dx        int
-	dy        int
-	respawnAt time.Time
+	x, y int
+	dx   int
+	dy   int
 }
 
 type player struct {
@@ -76,7 +75,7 @@ func Run() {
 		facing:   's',
 		lastMove: time.Now(),
 	}
-	foe := newEnemy(width, height)
+	foes := []enemy{newEnemy(width, height)}
 	pickups := make([]healthPickup, 0)
 	keys := make(chan byte, 16)
 	go readKeys(keys)
@@ -86,17 +85,29 @@ func Run() {
 	defer ticker.Stop()
 	enemyTicker := time.NewTicker(180 * time.Millisecond)
 	defer enemyTicker.Stop()
+	enemySpawnTicker := time.NewTicker(4 * time.Second)
+	defer enemySpawnTicker.Stop()
 	pickupTicker := time.NewTicker(10 * time.Second)
 	defer pickupTicker.Stop()
 
 	for {
-		// Refresh the bounds and keep both characters inside the chamber.
+		// Refresh the bounds and keep the characters inside the chamber.
 		width, height = readTerminalSize()
 		hero.x, hero.y = keepPlayerInChamber(hero.x, hero.y, width, height)
-		foe.x, foe.y = keepEnemyInChamber(foe.x, foe.y, width, height)
 
 		// Resolve close-range hits before drawing the next frame.
-		resolveBattle(&hero, &foe, time.Now())
+		now := time.Now()
+		for i := range foes {
+			foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, width, height)
+			resolveBattle(&hero, &foes[i], now)
+		}
+		alive := foes[:0]
+		for _, foe := range foes {
+			if foe.Health > 0 {
+				alive = append(alive, foe)
+			}
+		}
+		foes = alive
 		pickups = collectHealthPickups(&hero, pickups)
 
 		// Check if character should level up
@@ -105,7 +116,7 @@ func Run() {
 		// Switch the warrior's pose while idle.
 		idleTime := time.Since(hero.lastMove)
 		idleFrame := idleTime > 400*time.Millisecond && int(idleTime/(500*time.Millisecond))%2 == 1
-		fmt.Print(renderDungeon(hero, width, height, idleFrame, foe, pickups))
+		fmt.Print(renderDungeon(hero, width, height, idleFrame, foes, pickups))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -122,14 +133,18 @@ func Run() {
 			hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
 		case <-ticker.C:
 		case <-enemyTicker.C:
-			foe.step(width, height)
+			for i := range foes {
+				foes[i].step(width, height)
+			}
+		case <-enemySpawnTicker.C:
+			foes = append(foes, newEnemy(width, height))
 		case <-pickupTicker.C:
 			pickups = append(pickups, spawnHealthPickup(width, height))
 		}
 	}
 }
 
-func renderDungeon(hero player, width, height int, idleFrame bool, foe enemy, pickups []healthPickup) string {
+func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy, pickups []healthPickup) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -168,11 +183,13 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foe enemy, pi
 			grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
 		}
 	}
-	drawHUD(grid, hero, foe)
+	drawHUD(grid, hero, foes)
 	for _, pickup := range pickups {
 		drawHealthPickup(grid, pickup, left, right, top, bottom)
 	}
-	drawEnemy(grid, foe, left, right, top, bottom)
+	for _, foe := range foes {
+		drawEnemy(grid, foe, left, right, top, bottom)
+	}
 	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, idleFrame)
 
 	var frame bytes.Buffer
@@ -195,7 +212,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foe enemy, pi
 	return frame.String()
 }
 
-func drawHUD(grid [][]tile, hero player, foe enemy) {
+func drawHUD(grid [][]tile, hero player, foes []enemy) {
 	segments := []struct {
 		text  string
 		color string
@@ -208,7 +225,7 @@ func drawHUD(grid [][]tile, hero player, foe enemy) {
 		{"   ", ""},
 		{fmt.Sprintf("LEVEL %d", hero.Level), "\x1b[38;2;232;193;104m"},
 		{"   ", ""},
-		{fmt.Sprintf("FOE HP %d", max(foe.Health, 0)), "\x1b[38;2;220;120;103m"},
+		{fmt.Sprintf("ENEMIES %d", len(foes)), "\x1b[38;2;220;120;103m"},
 	}
 	x := 1
 	for _, segment := range segments {
@@ -296,9 +313,6 @@ func randomDirection() int {
 
 func (e *enemy) step(width, height int) {
 	if e.Health <= 0 {
-		if !e.respawnAt.IsZero() && !time.Now().Before(e.respawnAt) {
-			*e = newEnemy(width, height)
-		}
 		return
 	}
 	left, right, top, bottom := chamberBounds(width, height)
@@ -350,7 +364,6 @@ func resolveBattle(hero *player, foe *enemy, now time.Time) bool {
 	hero.lastHit = now
 	if foe.Health <= 0 {
 		hero.Experience += foe.ExperienceOnKill
-		foe.respawnAt = now.Add(2 * time.Second)
 	}
 	return true
 }
