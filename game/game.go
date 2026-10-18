@@ -35,6 +35,11 @@ type tile struct {
 	color string
 }
 
+type hudSegment struct {
+	text  string
+	color string
+}
+
 type enemy struct {
 	models.Enemy
 	x, y int
@@ -133,7 +138,6 @@ func Run() {
 		}
 		foes = alive
 		pickups = collectHealthPickups(&hero, pickups)
-		weaponDrops = collectWeaponDrops(&hero, weaponDrops)
 
 		// Check if character should level up
 		levelUp(&hero)
@@ -150,6 +154,10 @@ func Run() {
 		case event := <-keys:
 			if event.key == 3 && event.pressed {
 				stop()
+				continue
+			}
+			if event.key == ' ' && event.pressed {
+				weaponDrops = pickupWeaponDrop(&hero, weaponDrops)
 				continue
 			}
 			if event.tracked {
@@ -220,7 +228,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy,
 			grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
 		}
 	}
-	drawHUD(grid, hero, foes)
+	drawHUD(grid, hero, foes, weaponDrops)
 	for _, pickup := range pickups {
 		drawHealthPickup(grid, pickup, left, right, top, bottom)
 	}
@@ -252,16 +260,14 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy,
 	return frame.String()
 }
 
-func drawHUD(grid [][]tile, hero player, foes []enemy) {
-	segments := []struct {
-		text  string
-		color string
-	}{
+func drawHUD(grid [][]tile, hero player, foes []enemy, weaponDrops []weaponDrop) {
+	segments := []hudSegment{
 		{fmt.Sprintf("HP %d/%d", hero.Health, hero.MaxHealth), "\x1b[38;2;232;103;103m"},
 		{"   ", ""},
 		{fmt.Sprintf("DMG %d", hero.Damage), "\x1b[38;2;222;222;210m"},
 		{"   ", ""},
-		{fmt.Sprintf("WPN %s", equippedWeaponName(hero.weapon)), "\x1b[38;2;184;204;221m"},
+		{"WPN ", "\x1b[38;2;184;204;221m"},
+		{equippedWeaponName(hero.weapon), weaponTierColor(hero.weapon.Tier)},
 		{"   ", ""},
 		{fmt.Sprintf("XP %d", hero.Experience), "\x1b[38;2;232;193;104m"},
 		{"   ", ""},
@@ -269,13 +275,29 @@ func drawHUD(grid [][]tile, hero player, foes []enemy) {
 		{"   ", ""},
 		{fmt.Sprintf("ENEMIES %d", len(foes)), "\x1b[38;2;220;120;103m"},
 	}
+	drawHUDLine(grid, 0, segments)
+	if len(grid) < 2 {
+		return
+	}
+	itemSegments := []hudSegment{{text: "DROP: none", color: "\x1b[38;2;184;204;221m"}}
+	if drop, ok := nearestWeaponDrop(hero, weaponDrops); ok && weaponDropInRange(hero, drop) {
+		itemSegments = []hudSegment{
+			{text: "DROP: ", color: "\x1b[38;2;184;204;221m"},
+			{text: drop.weapon.Name, color: weaponTierColor(drop.weapon.Tier)},
+			{text: fmt.Sprintf(" %s DMG %d  [SPACE nearby]", weaponTierName(drop.weapon.Tier), drop.weapon.Damage), color: "\x1b[38;2;184;204;221m"},
+		}
+	}
+	drawHUDLine(grid, 1, itemSegments)
+}
+
+func drawHUDLine(grid [][]tile, row int, segments []hudSegment) {
 	x := 1
 	for _, segment := range segments {
 		for _, glyph := range segment.text {
-			if x >= len(grid[0]) {
+			if x >= len(grid[row]) {
 				return
 			}
-			grid[0][x] = tile{glyph, segment.color}
+			grid[row][x] = tile{glyph, segment.color}
 			x++
 		}
 	}
@@ -343,18 +365,34 @@ func weaponDropPosition(foe enemy, hero player, width, height int) (int, int) {
 	return best[0], best[1]
 }
 
-func collectWeaponDrops(hero *player, drops []weaponDrop) []weaponDrop {
-	remaining := drops[:0]
-	for _, drop := range drops {
-		touching := abs(hero.x-drop.x) <= 2 && abs(hero.y-drop.y) <= 1
-		if touching {
+func pickupWeaponDrop(hero *player, drops []weaponDrop) []weaponDrop {
+	for i, drop := range drops {
+		if abs(hero.x-drop.x) <= 2 && abs(hero.y-drop.y) <= 1 {
 			hero.weapon = drop.weapon
 			hero.Damage = drop.weapon.Damage
-			continue
+			return append(drops[:i], drops[i+1:]...)
 		}
-		remaining = append(remaining, drop)
 	}
-	return remaining
+	return drops
+}
+
+func nearestWeaponDrop(hero player, drops []weaponDrop) (weaponDrop, bool) {
+	if len(drops) == 0 {
+		return weaponDrop{}, false
+	}
+	nearest := drops[0]
+	nearestDistance := abs(hero.x-nearest.x) + abs(hero.y-nearest.y)
+	for _, drop := range drops[1:] {
+		distance := abs(hero.x-drop.x) + abs(hero.y-drop.y)
+		if distance < nearestDistance {
+			nearest, nearestDistance = drop, distance
+		}
+	}
+	return nearest, true
+}
+
+func weaponDropInRange(hero player, drop weaponDrop) bool {
+	return abs(hero.x-drop.x) <= 2 && abs(hero.y-drop.y) <= 1
 }
 
 func equippedWeaponName(weapon items.Weapon) string {
@@ -364,20 +402,37 @@ func equippedWeaponName(weapon items.Weapon) string {
 	return weapon.Name
 }
 
+func weaponTierName(tier items.ItemTier) string {
+	switch tier {
+	case items.MagicTier:
+		return "Magic"
+	case items.RareTier:
+		return "Rare"
+	case items.UniqueTier:
+		return "Unique"
+	default:
+		return "Normal"
+	}
+}
+
+func weaponTierColor(tier items.ItemTier) string {
+	switch tier {
+	case items.MagicTier:
+		return "\x1b[38;2;113;205;232m"
+	case items.RareTier:
+		return "\x1b[38;2;232;195;92m"
+	case items.UniqueTier:
+		return "\x1b[38;2;225;132;220m"
+	default:
+		return "\x1b[38;2;220;220;205m"
+	}
+}
+
 func drawWeaponDrop(grid [][]tile, drop weaponDrop, left, right, top, bottom int) {
 	if drop.x <= left || drop.x >= right || drop.y <= top || drop.y >= bottom {
 		return
 	}
-	color := "\x1b[38;2;220;220;205m"
-	switch drop.weapon.Tier {
-	case items.MagicTier:
-		color = "\x1b[38;2;113;205;232m"
-	case items.RareTier:
-		color = "\x1b[38;2;232;195;92m"
-	case items.UniqueTier:
-		color = "\x1b[38;2;225;132;220m"
-	}
-	grid[drop.y][drop.x] = tile{'w', color}
+	grid[drop.y][drop.x] = tile{'w', weaponTierColor(drop.weapon.Tier)}
 }
 
 func drawHealthPickup(grid [][]tile, pickup healthPickup, left, right, top, bottom int) {
@@ -728,6 +783,9 @@ func parseKeySequence(sequence string, terminator byte) (keyEvent, bool) {
 }
 
 func keyFromCode(code int) rune {
+	if code == ' ' {
+		return ' '
+	}
 	if code >= 'a' && code <= 'z' {
 		return rune(code)
 	}
