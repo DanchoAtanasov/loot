@@ -20,3 +20,7 @@ var DefaultPlayer = Player{
 	MovementSpeed: 1,
 	Experience:    0,
 }
+
+var LevelThreshold []int = []int{
+	0, 20, 40, 300, 400, 500,
+}

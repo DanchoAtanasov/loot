@@ -90,6 +90,9 @@ func Run() {
 		// Resolve close-range hits before drawing the next frame.
 		resolveBattle(&hero, &foe, time.Now())
 
+		// Check if character should level up
+		levelUp(&hero)
+
 		// Switch the warrior's pose while idle.
 		idleTime := time.Since(hero.lastMove)
 		idleFrame := idleTime > 400*time.Millisecond && int(idleTime/(500*time.Millisecond))%2 == 1
@@ -189,6 +192,8 @@ func drawHUD(grid [][]tile, hero player, foe enemy) {
 		{"   ", ""},
 		{fmt.Sprintf("XP %d", hero.Experience), "\x1b[38;2;232;193;104m"},
 		{"   ", ""},
+		{fmt.Sprintf("LEVEL %d", hero.Level), "\x1b[38;2;232;193;104m"},
+		{"   ", ""},
 		{fmt.Sprintf("FOE HP %d", max(foe.Health, 0)), "\x1b[38;2;220;120;103m"},
 	}
 	x := 1
@@ -276,6 +281,14 @@ func drawEnemy(grid [][]tile, foe enemy, left, right, top, bottom int) {
 	if foe.Health > 0 && foe.x > left && foe.x < right && foe.y > top && foe.y < bottom {
 		grid[foe.y][foe.x] = tile{'g', "\x1b[38;2;220;92;83m"}
 	}
+}
+
+func levelUp(hero *player) {
+	threshold := models.LevelThreshold[hero.Level]
+	if !(hero.Experience >= threshold) {
+		return
+	}
+	hero.Level += 1
 }
 
 func resolveBattle(hero *player, foe *enemy, now time.Time) bool {
