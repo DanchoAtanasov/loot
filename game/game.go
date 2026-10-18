@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"syscall"
@@ -33,9 +34,10 @@ type tile struct {
 
 type enemy struct {
 	models.Enemy
-	x, y int
-	dx   int
-	dy   int
+	x, y      int
+	dx        int
+	dy        int
+	respawnAt time.Time
 }
 
 type player struct {
@@ -43,6 +45,7 @@ type player struct {
 	x, y     int
 	facing   byte
 	lastMove time.Time
+	lastHit  time.Time
 }
 
 func Run() {
@@ -79,16 +82,27 @@ func Run() {
 	defer enemyTicker.Stop()
 
 	for {
+		// Refresh the bounds and keep both characters inside the chamber.
 		width, height = readTerminalSize()
 		hero.x, hero.y = keepPlayerInChamber(hero.x, hero.y, width, height)
 		foe.x, foe.y = keepEnemyInChamber(foe.x, foe.y, width, height)
+
+		// Resolve close-range hits before drawing the next frame.
+		resolveBattle(&hero, &foe, time.Now())
+
+		// Switch the warrior's pose while idle.
 		idleTime := time.Since(hero.lastMove)
 		idleFrame := idleTime > 400*time.Millisecond && int(idleTime/(500*time.Millisecond))%2 == 1
 		fmt.Print(renderDungeon(hero, width, height, idleFrame, foe))
+
+		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
 		case <-ctx.Done():
 			return
 		case key := <-keys:
+			if hero.Health <= 0 {
+				continue
+			}
 			nextX, nextY, nextFacing := movePlayer(key, hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height)
 			if nextX != hero.x || nextY != hero.y || nextFacing != hero.facing {
 				hero.lastMove = time.Now()
@@ -165,12 +179,51 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foe enemy) st
 
 func newEnemy(width, height int) enemy {
 	left, right, top, bottom := chamberBounds(width, height)
-	x := min(left+3, right-1)
-	y := min(top+2, bottom-1)
-	return enemy{Enemy: models.DefaultEnemy, x: x, y: y, dx: 1, dy: 1}
+	minX, maxX := left+1, right-1
+	minY, maxY := top+1, bottom-1
+	if minX > maxX {
+		minX, maxX = left, right
+	}
+	if minY > maxY {
+		minY, maxY = top, bottom
+	}
+
+	foe := enemy{Enemy: models.DefaultEnemy}
+	switch rand.IntN(4) {
+	case 0: // Enter from the top.
+		foe.x, foe.y = randomBetween(minX, maxX), minY
+		foe.dx, foe.dy = randomDirection(), 1
+	case 1: // Enter from the bottom.
+		foe.x, foe.y = randomBetween(minX, maxX), maxY
+		foe.dx, foe.dy = randomDirection(), -1
+	case 2: // Enter from the left.
+		foe.x, foe.y = minX, randomBetween(minY, maxY)
+		foe.dx, foe.dy = 1, randomDirection()
+	case 3: // Enter from the right.
+		foe.x, foe.y = maxX, randomBetween(minY, maxY)
+		foe.dx, foe.dy = -1, randomDirection()
+	}
+	return foe
+}
+
+func randomBetween(minimum, maximum int) int {
+	return minimum + rand.IntN(maximum-minimum+1)
+}
+
+func randomDirection() int {
+	if rand.IntN(2) == 0 {
+		return -1
+	}
+	return 1
 }
 
 func (e *enemy) step(width, height int) {
+	if e.Health <= 0 {
+		if !e.respawnAt.IsZero() && !time.Now().Before(e.respawnAt) {
+			*e = newEnemy(width, height)
+		}
+		return
+	}
 	left, right, top, bottom := chamberBounds(width, height)
 	minX, maxX := left+1, right-1
 	minY, maxY := top+1, bottom-1
@@ -194,9 +247,34 @@ func keepEnemyInChamber(x, y, width, height int) (int, int) {
 }
 
 func drawEnemy(grid [][]tile, foe enemy, left, right, top, bottom int) {
-	if foe.x > left && foe.x < right && foe.y > top && foe.y < bottom {
+	if foe.Health > 0 && foe.x > left && foe.x < right && foe.y > top && foe.y < bottom {
 		grid[foe.y][foe.x] = tile{'g', "\x1b[38;2;220;92;83m"}
 	}
+}
+
+func resolveBattle(hero *player, foe *enemy, now time.Time) bool {
+	if hero.Health <= 0 || foe.Health <= 0 || now.Sub(hero.lastHit) < 500*time.Millisecond {
+		return false
+	}
+	if abs(hero.x-foe.x) > 2 || abs(hero.y-foe.y) > 1 {
+		return false
+	}
+
+	foe.Health -= max(hero.Damage, 0)
+	hero.Health = max(hero.Health-max(foe.Damage, 0), 0)
+	hero.lastHit = now
+	if foe.Health <= 0 {
+		hero.Experience += foe.ExperienceOnKill
+		foe.respawnAt = now.Add(2 * time.Second)
+	}
+	return true
+}
+
+func abs(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte, idleFrame bool) {
