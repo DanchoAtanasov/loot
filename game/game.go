@@ -312,10 +312,10 @@ func weaponDropPosition(foe enemy, hero player, width, height int) (int, int) {
 	minX, maxX := left+1, right-1
 	minY, maxY := top+1, bottom-1
 	candidates := [][2]int{
-		{foe.x + 3, foe.y},
-		{foe.x - 3, foe.y},
-		{foe.x, foe.y + 2},
-		{foe.x, foe.y - 2},
+		{foe.x + 6, foe.y},
+		{foe.x - 6, foe.y},
+		{foe.x, foe.y + 4},
+		{foe.x, foe.y - 4},
 	}
 	best := candidates[0]
 	bestDistance := -1
