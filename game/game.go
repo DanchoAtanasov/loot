@@ -8,6 +8,8 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -59,6 +61,12 @@ type weaponDrop struct {
 	x, y   int
 }
 
+type keyEvent struct {
+	key     rune
+	pressed bool
+	tracked bool
+}
+
 func Run() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -70,8 +78,8 @@ func Run() {
 	}
 	defer restoreTerminal(originalTerminal)
 
-	fmt.Print("\x1b[?1049h\x1b[?25l\x1b[2J") // alternate screen, hide cursor, clear
-	defer fmt.Print("\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1049l")
+	fmt.Print("\x1b[?1049h\x1b[>10u\x1b[?25l\x1b[2J") // alternate screen, key events, hide cursor
+	defer fmt.Print("\x1b[?2026l\x1b[0m\x1b[?25h\x1b[<u\x1b[?1049l")
 
 	width, height := readTerminalSize()
 	playerX, playerY := chamberCenter(width, height)
@@ -86,7 +94,9 @@ func Run() {
 	foes := []enemy{newEnemy(width, height)}
 	pickups := make([]healthPickup, 0)
 	weaponDrops := make([]weaponDrop, 0)
-	keys := make(chan byte, 16)
+	keys := make(chan keyEvent, 32)
+	heldKeys := make(map[rune]bool)
+	lastStep := time.Time{}
 	go readKeys(keys)
 
 	frameDuration := time.Second / framesPerSecond
@@ -137,16 +147,28 @@ func Run() {
 		select {
 		case <-ctx.Done():
 			return
-		case key := <-keys:
-			if hero.Health <= 0 {
+		case event := <-keys:
+			if event.key == 3 && event.pressed {
+				stop()
 				continue
 			}
-			nextX, nextY, nextFacing := movePlayer(key, hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height)
-			if nextX != hero.x || nextY != hero.y || nextFacing != hero.facing {
+			if event.tracked {
+				heldKeys[event.key] = event.pressed
+				continue
+			}
+			if hero.Health > 0 && event.pressed {
+				hero.x, hero.y, hero.facing = movePlayer(byte(event.key), hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height)
 				hero.lastMove = time.Now()
 			}
-			hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
-		case <-ticker.C:
+		case now := <-ticker.C:
+			if hero.Health > 0 && now.Sub(lastStep) >= 120*time.Millisecond {
+				nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height)
+				if nextX != hero.x || nextY != hero.y {
+					hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
+					hero.lastMove = now
+				}
+				lastStep = now
+			}
 		case <-enemyTicker.C:
 			for i := range foes {
 				foes[i].step(width, height)
@@ -572,55 +594,161 @@ func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height in
 	case 'd', 'D':
 		x += 2 * step
 		facing = 'd'
-	case 'q', 'Q':
-		x -= 2 * step
-		y -= step
-		facing = 'q'
-	case 'e', 'E':
-		x += 2 * step
-		y -= step
-		facing = 'e'
-	case 'z', 'Z':
-		x -= 2 * step
-		y += step
-		facing = 'z'
-	case 'c', 'C':
-		x += 2 * step
-		y += step
-		facing = 'c'
 	}
 	x, y = keepPlayerInChamber(x, y, width, height)
 	return x, y, facing
 }
 
-func readKeys(keys chan<- byte) {
+func movePlayerHeld(held map[rune]bool, x, y int, facing byte, movementSpeed, width, height int) (int, int, byte) {
+	dx, dy := 0, 0
+	if held['a'] != held['d'] {
+		if held['a'] {
+			dx = -1
+		} else {
+			dx = 1
+		}
+	}
+	if held['w'] != held['s'] {
+		if held['w'] {
+			dy = -1
+		} else {
+			dy = 1
+		}
+	}
+	if dx == 0 && dy == 0 {
+		return x, y, facing
+	}
+
+	switch {
+	case dx < 0 && dy < 0:
+		facing = 'q'
+	case dx > 0 && dy < 0:
+		facing = 'e'
+	case dx < 0 && dy > 0:
+		facing = 'z'
+	case dx > 0 && dy > 0:
+		facing = 'c'
+	case dx < 0:
+		facing = 'a'
+	case dx > 0:
+		facing = 'd'
+	case dy < 0:
+		facing = 'w'
+	case dy > 0:
+		facing = 's'
+	}
+	step := max(movementSpeed, 1)
+	x += dx * 2 * step
+	y += dy * step
+	x, y = keepPlayerInChamber(x, y, width, height)
+	return x, y, facing
+}
+
+func readKeys(keys chan<- keyEvent) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		key, err := reader.ReadByte()
+		first, err := reader.ReadByte()
 		if err != nil {
 			return
 		}
-		if key == 0x1b {
-			_, _ = reader.ReadByte() // '['
-			key, err = reader.ReadByte()
-			if err != nil {
+		if first != 0x1b {
+			sendKey(keys, keyEvent{key: rune(first), pressed: true})
+			continue
+		}
+
+		intro, err := reader.ReadByte()
+		if err != nil {
+			return
+		}
+		if intro != '[' {
+			continue
+		}
+		var sequence strings.Builder
+		for {
+			part, readErr := reader.ReadByte()
+			if readErr != nil {
 				return
 			}
-			switch key {
-			case 'A':
-				key = 'w'
-			case 'B':
-				key = 's'
-			case 'C':
-				key = 'd'
-			case 'D':
-				key = 'a'
+			if part >= 0x40 && part <= 0x7e {
+				key, ok := parseKeySequence(sequence.String(), part)
+				if ok {
+					sendKey(keys, key)
+				}
+				break
 			}
+			sequence.WriteByte(part)
 		}
-		select {
-		case keys <- key:
-		default:
+	}
+}
+
+func parseKeySequence(sequence string, terminator byte) (keyEvent, bool) {
+	// Accept both plain CSI arrows (for example, ESC [ A) and the
+	// modifier-bearing form used by some terminals (ESC [ 1 ; 1 A).
+	if terminator == 'A' {
+		return keyEvent{key: 'w', pressed: true}, true
+	}
+	if terminator == 'B' {
+		return keyEvent{key: 's', pressed: true}, true
+	}
+	if terminator == 'C' {
+		return keyEvent{key: 'd', pressed: true}, true
+	}
+	if terminator == 'D' {
+		return keyEvent{key: 'a', pressed: true}, true
+	}
+	if terminator != 'u' {
+		return keyEvent{}, false
+	}
+
+	fields := strings.Split(sequence, ";")
+	if len(fields) == 0 {
+		return keyEvent{}, false
+	}
+	code, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return keyEvent{}, false
+	}
+	key := keyFromCode(code)
+	if key == 0 {
+		return keyEvent{}, false
+	}
+
+	modifiers, eventType := 1, 1
+	if len(fields) > 1 {
+		eventFields := strings.Split(fields[1], ":")
+		modifiers, _ = strconv.Atoi(eventFields[0])
+		if len(eventFields) > 1 {
+			eventType, _ = strconv.Atoi(eventFields[1])
 		}
+	}
+	if key == 'c' && (modifiers-1)&4 != 0 {
+		key = 3 // Preserve Ctrl-C as the game's exit key.
+	}
+	return keyEvent{key: key, pressed: eventType != 3, tracked: true}, true
+}
+
+func keyFromCode(code int) rune {
+	if code >= 'a' && code <= 'z' {
+		return rune(code)
+	}
+	switch code {
+	case 57350: // Left arrow.
+		return 'a'
+	case 57351: // Right arrow.
+		return 'd'
+	case 57352: // Up arrow.
+		return 'w'
+	case 57353: // Down arrow.
+		return 's'
+	default:
+		return 0
+	}
+}
+
+func sendKey(keys chan<- keyEvent, key keyEvent) {
+	select {
+	case keys <- key:
+	default:
 	}
 }
 
