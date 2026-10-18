@@ -297,14 +297,26 @@ func weaponDropPosition(foe enemy, hero player, width, height int) (int, int) {
 	}
 	best := candidates[0]
 	bestDistance := -1
+	fallbackDistance := -1
+	fallback := best
 	for _, candidate := range candidates {
 		x := min(max(candidate[0], minX), maxX)
 		y := min(max(candidate[1], minY), maxY)
 		distance := abs(x-hero.x) + abs(y-hero.y)
+		if distance > fallbackDistance {
+			fallback = [2]int{x, y}
+			fallbackDistance = distance
+		}
+		if abs(x-hero.x) <= 2 && abs(y-hero.y) <= 1 {
+			continue
+		}
 		if distance > bestDistance {
 			best = [2]int{x, y}
 			bestDistance = distance
 		}
+	}
+	if bestDistance < 0 {
+		best = fallback
 	}
 	return best[0], best[1]
 }
@@ -470,15 +482,23 @@ func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte,
 		head = '>'
 	case 'w':
 		head, leftArm, rightArm, legs = '^', '/', '\\', "/   \\"
+	case 'q':
+		head, swordColumn = '↖', 1
+	case 'e':
+		head = '↗'
+	case 'z':
+		head, swordColumn = '↙', 1
+	case 'c':
+		head = '↘'
 	}
 	if idleFrame {
 		chest = '+'
-		if facing == 'a' || facing == 'w' {
+		if facing == 'a' || facing == 'w' || facing == 'q' || facing == 'z' {
 			rightArm = '\\'
 		} else {
 			leftArm = '\\'
 		}
-		if facing == 'w' {
+		if facing == 'w' || facing == 'q' || facing == 'e' {
 			legs = " / \\ "
 		} else {
 			legs = "/   \\"
@@ -552,6 +572,22 @@ func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height in
 	case 'd', 'D':
 		x += 2 * step
 		facing = 'd'
+	case 'q', 'Q':
+		x -= 2 * step
+		y -= step
+		facing = 'q'
+	case 'e', 'E':
+		x += 2 * step
+		y -= step
+		facing = 'e'
+	case 'z', 'Z':
+		x -= 2 * step
+		y += step
+		facing = 'z'
+	case 'c', 'C':
+		x += 2 * step
+		y += step
+		facing = 'c'
 	}
 	x, y = keepPlayerInChamber(x, y, width, height)
 	return x, y, facing
