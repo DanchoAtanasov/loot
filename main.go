@@ -105,9 +105,7 @@ func renderDungeon(playerX, playerY, width, height int) string {
 			grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
 		}
 	}
-	if playerX > left && playerX < right && playerY > top && playerY < bottom {
-		grid[playerY][playerX] = tile{'.', "\x1b[38;2;235;226;195m"}
-	}
+	drawWarrior(grid, playerX, playerY, left, right, top, bottom)
 
 	var frame bytes.Buffer
 	frame.WriteString("\x1b[?2026h\x1b[H")
@@ -129,6 +127,33 @@ func renderDungeon(playerX, playerY, width, height int) string {
 	return frame.String()
 }
 
+func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int) {
+	// Helmet, armored torso with sword, and boots. The player position is the sprite center.
+	sprite := []string{
+		" /^\\ ",
+		"<|#|>",
+		" / \\",
+	}
+	colors := []string{
+		"\x1b[38;2;220;183;105m",
+		"\x1b[38;2;226;220;195m",
+		"\x1b[38;2;160;166;174m",
+	}
+	for row, line := range sprite {
+		gridY := y - 1 + row
+		if gridY <= top || gridY >= bottom {
+			continue
+		}
+		for col, glyph := range line {
+			gridX := x - 2 + col
+			if gridX <= left || gridX >= right {
+				continue
+			}
+			grid[gridY][gridX] = tile{glyph, colors[row]}
+		}
+	}
+}
+
 func chamberBounds(width, height int) (left, right, top, bottom int) {
 	left, right = 2, width-3
 	top, bottom = 1, height-2
@@ -148,7 +173,7 @@ func keepPlayerInChamber(x, y, width, height int) (int, int) {
 	if right-left < 2 || bottom-top < 2 {
 		return chamberCenter(width, height)
 	}
-	return min(max(x, left+1), right-1), min(max(y, top+1), bottom-1)
+	return min(max(x, left+2), right-2), min(max(y, top+1), bottom-1)
 }
 
 func movePlayer(key byte, x, y, width, height int) (int, int) {
