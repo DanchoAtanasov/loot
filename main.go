@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -32,25 +33,40 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	originalTerminal, err := enableRawMode()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not enable keyboard input: %v\n", err)
+		return
+	}
+	defer restoreTerminal(originalTerminal)
+
 	fmt.Print("\x1b[?1049h\x1b[?25l\x1b[2J") // alternate screen, hide cursor, clear
 	defer fmt.Print("\x1b[?2026l\x1b[0m\x1b[?25h\x1b[?1049l")
+
+	width, height := readTerminalSize()
+	playerX, playerY := chamberCenter(width, height)
+	keys := make(chan byte, 16)
+	go readKeys(keys)
 
 	frameDuration := time.Second / framesPerSecond
 	ticker := time.NewTicker(frameDuration)
 	defer ticker.Stop()
 
 	for {
-		fmt.Print(renderDungeon())
+		width, height = readTerminalSize()
+		playerX, playerY = keepPlayerInChamber(playerX, playerY, width, height)
+		fmt.Print(renderDungeon(playerX, playerY, width, height))
 		select {
 		case <-ctx.Done():
 			return
+		case key := <-keys:
+			playerX, playerY = movePlayer(key, playerX, playerY, width, height)
 		case <-ticker.C:
 		}
 	}
 }
 
-func renderDungeon() string {
-	width, height := readTerminalSize()
+func renderDungeon(playerX, playerY, width, height int) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -89,6 +105,9 @@ func renderDungeon() string {
 			grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
 		}
 	}
+	if playerX > left && playerX < right && playerY > top && playerY < bottom {
+		grid[playerY][playerX] = tile{'.', "\x1b[38;2;235;226;195m"}
+	}
 
 	var frame bytes.Buffer
 	frame.WriteString("\x1b[?2026h\x1b[H")
@@ -108,6 +127,100 @@ func renderDungeon() string {
 	}
 	frame.WriteString("\x1b[0m\x1b[K\x1b[?2026l")
 	return frame.String()
+}
+
+func chamberBounds(width, height int) (left, right, top, bottom int) {
+	left, right = 2, width-3
+	top, bottom = 1, height-2
+	if right-left < 8 || bottom-top < 6 {
+		left, right, top, bottom = 0, width-1, 0, height-1
+	}
+	return
+}
+
+func chamberCenter(width, height int) (int, int) {
+	left, right, top, bottom := chamberBounds(width, height)
+	return (left + right) / 2, (top + bottom) / 2
+}
+
+func keepPlayerInChamber(x, y, width, height int) (int, int) {
+	left, right, top, bottom := chamberBounds(width, height)
+	if right-left < 2 || bottom-top < 2 {
+		return chamberCenter(width, height)
+	}
+	return min(max(x, left+1), right-1), min(max(y, top+1), bottom-1)
+}
+
+func movePlayer(key byte, x, y, width, height int) (int, int) {
+	switch key {
+	case 'w', 'W':
+		y--
+	case 's', 'S':
+		y++
+	case 'a', 'A':
+		x--
+	case 'd', 'D':
+		x++
+	}
+	return keepPlayerInChamber(x, y, width, height)
+}
+
+func readKeys(keys chan<- byte) {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		key, err := reader.ReadByte()
+		if err != nil {
+			return
+		}
+		if key == 0x1b {
+			_, _ = reader.ReadByte() // '['
+			key, err = reader.ReadByte()
+			if err != nil {
+				return
+			}
+			switch key {
+			case 'A':
+				key = 'w'
+			case 'B':
+				key = 's'
+			case 'C':
+				key = 'd'
+			case 'D':
+				key = 'a'
+			}
+		}
+		select {
+		case keys <- key:
+		default:
+		}
+	}
+}
+
+func enableRawMode() (*syscall.Termios, error) {
+	var original syscall.Termios
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, os.Stdin.Fd(), syscall.TIOCGETA, uintptr(unsafe.Pointer(&original)))
+	if errno != 0 {
+		return nil, errno
+	}
+	raw := original
+	raw.Iflag &^= syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK | syscall.ISTRIP | syscall.INLCR | syscall.IGNCR | syscall.ICRNL | syscall.IXON
+	raw.Oflag &^= syscall.OPOST
+	raw.Lflag &^= syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.IEXTEN
+	raw.Cflag &^= syscall.CSIZE | syscall.PARENB
+	raw.Cflag |= syscall.CS8
+	raw.Cc[syscall.VMIN] = 1
+	raw.Cc[syscall.VTIME] = 0
+	_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, os.Stdin.Fd(), syscall.TIOCSETA, uintptr(unsafe.Pointer(&raw)))
+	if errno != 0 {
+		return nil, errno
+	}
+	return &original, nil
+}
+
+func restoreTerminal(original *syscall.Termios) {
+	if original != nil {
+		_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, os.Stdin.Fd(), syscall.TIOCSETA, uintptr(unsafe.Pointer(original)))
+	}
 }
 
 func readTerminalSize() (int, int) {
