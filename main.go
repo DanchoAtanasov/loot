@@ -142,12 +142,13 @@ func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte,
 	chest := '#'
 	head := '^'
 	leftArm, rightArm := '<', '>'
+	swordColumn := 3
 	legs := " / \\ "
 	switch facing {
 	case 's':
 		head = 'v'
 	case 'a':
-		head, leftArm, rightArm = '<', '>', '<'
+		head, swordColumn = '<', 1
 	case 'd':
 		head = '>'
 	case 'w':
@@ -155,9 +156,10 @@ func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte,
 	}
 	if idleFrame {
 		chest = '+'
-		leftArm, rightArm = '\\', '/'
-		if facing == 'a' {
-			leftArm, rightArm = '/', '\\'
+		if facing == 'a' || facing == 'w' {
+			rightArm = '\\'
+		} else {
+			leftArm = '\\'
 		}
 		if facing == 'w' {
 			legs = " / \\ "
@@ -165,9 +167,11 @@ func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte,
 			legs = "/   \\"
 		}
 	}
+	torso := []rune{leftArm, '|', chest, '|', rightArm}
+	torso[swordColumn] = '†'
 	sprite := []string{
 		string([]rune{' ', '/', head, '\\', ' '}),
-		string([]rune{leftArm, '|', chest, '|', rightArm}),
+		string(torso),
 		legs,
 	}
 	colors := []string{
@@ -185,7 +189,11 @@ func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte,
 			if gridX <= left || gridX >= right {
 				continue
 			}
-			grid[gridY][gridX] = tile{glyph, colors[row]}
+			color := colors[row]
+			if glyph == '†' {
+				color = "\x1b[38;2;184;204;221m"
+			}
+			grid[gridY][gridX] = tile{glyph, color}
 		}
 	}
 }
