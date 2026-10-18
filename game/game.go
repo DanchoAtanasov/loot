@@ -154,6 +154,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foe enemy) st
 			grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
 		}
 	}
+	drawHUD(grid, hero, foe)
 	drawEnemy(grid, foe, left, right, top, bottom)
 	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, idleFrame)
 
@@ -175,6 +176,31 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foe enemy) st
 	}
 	frame.WriteString("\x1b[0m\x1b[K\x1b[?2026l")
 	return frame.String()
+}
+
+func drawHUD(grid [][]tile, hero player, foe enemy) {
+	segments := []struct {
+		text  string
+		color string
+	}{
+		{fmt.Sprintf("HP %d", hero.Health), "\x1b[38;2;232;103;103m"},
+		{"   ", ""},
+		{fmt.Sprintf("DMG %d", hero.Damage), "\x1b[38;2;222;222;210m"},
+		{"   ", ""},
+		{fmt.Sprintf("XP %d", hero.Experience), "\x1b[38;2;232;193;104m"},
+		{"   ", ""},
+		{fmt.Sprintf("FOE HP %d", max(foe.Health, 0)), "\x1b[38;2;220;120;103m"},
+	}
+	x := 1
+	for _, segment := range segments {
+		for _, glyph := range segment.text {
+			if x >= len(grid[0]) {
+				return
+			}
+			grid[0][x] = tile{glyph, segment.color}
+			x++
+		}
+	}
 }
 
 func newEnemy(width, height int) enemy {
