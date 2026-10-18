@@ -29,6 +29,12 @@ type tile struct {
 	color string
 }
 
+type enemy struct {
+	x, y int
+	dx   int
+	dy   int
+}
+
 func Run() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -45,6 +51,7 @@ func Run() {
 
 	width, height := readTerminalSize()
 	playerX, playerY := chamberCenter(width, height)
+	foe := newEnemy(width, height)
 	facing := byte('s')
 	lastMove := time.Now()
 	keys := make(chan byte, 16)
@@ -53,12 +60,15 @@ func Run() {
 	frameDuration := time.Second / framesPerSecond
 	ticker := time.NewTicker(frameDuration)
 	defer ticker.Stop()
+	enemyTicker := time.NewTicker(180 * time.Millisecond)
+	defer enemyTicker.Stop()
 
 	for {
 		width, height = readTerminalSize()
 		playerX, playerY = keepPlayerInChamber(playerX, playerY, width, height)
+		foe.x, foe.y = keepEnemyInChamber(foe.x, foe.y, width, height)
 		idleFrame := time.Since(lastMove) > 400*time.Millisecond && int(time.Since(lastMove)/(500*time.Millisecond))%2 == 1
-		fmt.Print(renderDungeon(playerX, playerY, width, height, facing, idleFrame))
+		fmt.Print(renderDungeon(playerX, playerY, width, height, facing, idleFrame, foe))
 		select {
 		case <-ctx.Done():
 			return
@@ -72,11 +82,13 @@ func Run() {
 			}
 			playerX, playerY, facing = nextX, nextY, nextFacing
 		case <-ticker.C:
+		case <-enemyTicker.C:
+			foe.step(width, height)
 		}
 	}
 }
 
-func renderDungeon(playerX, playerY, width, height int, facing byte, idleFrame bool) string {
+func renderDungeon(playerX, playerY, width, height int, facing byte, idleFrame bool, foe enemy) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -115,6 +127,7 @@ func renderDungeon(playerX, playerY, width, height int, facing byte, idleFrame b
 			grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
 		}
 	}
+	drawEnemy(grid, foe, left, right, top, bottom)
 	drawWarrior(grid, playerX, playerY, left, right, top, bottom, facing, idleFrame)
 
 	var frame bytes.Buffer
@@ -135,6 +148,42 @@ func renderDungeon(playerX, playerY, width, height int, facing byte, idleFrame b
 	}
 	frame.WriteString("\x1b[0m\x1b[K\x1b[?2026l")
 	return frame.String()
+}
+
+func newEnemy(width, height int) enemy {
+	left, right, top, bottom := chamberBounds(width, height)
+	x := min(left+3, right-1)
+	y := min(top+2, bottom-1)
+	return enemy{x: x, y: y, dx: 1, dy: 1}
+}
+
+func (e *enemy) step(width, height int) {
+	left, right, top, bottom := chamberBounds(width, height)
+	minX, maxX := left+1, right-1
+	minY, maxY := top+1, bottom-1
+	if e.x+2*e.dx < minX || e.x+2*e.dx > maxX {
+		e.dx *= -1
+	}
+	if e.y+e.dy < minY || e.y+e.dy > maxY {
+		e.dy *= -1
+	}
+	e.x += 2 * e.dx
+	e.y += e.dy
+	e.x, e.y = keepEnemyInChamber(e.x, e.y, width, height)
+}
+
+func keepEnemyInChamber(x, y, width, height int) (int, int) {
+	left, right, top, bottom := chamberBounds(width, height)
+	if right-left < 2 || bottom-top < 2 {
+		return chamberCenter(width, height)
+	}
+	return min(max(x, left+1), right-1), min(max(y, top+1), bottom-1)
+}
+
+func drawEnemy(grid [][]tile, foe enemy, left, right, top, bottom int) {
+	if foe.x > left && foe.x < right && foe.y > top && foe.y < bottom {
+		grid[foe.y][foe.x] = tile{'g', "\x1b[38;2;220;92;83m"}
+	}
 }
 
 func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte, idleFrame bool) {
