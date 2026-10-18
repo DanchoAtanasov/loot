@@ -221,10 +221,10 @@ func movePlayer(key byte, x, y int, facing byte, width, height int) (int, int, b
 		y++
 		facing = 's'
 	case 'a', 'A':
-		x--
+		x -= 2
 		facing = 'a'
 	case 'd', 'D':
-		x++
+		x += 2
 		facing = 'd'
 	}
 	x, y = keepPlayerInChamber(x, y, width, height)
