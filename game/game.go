@@ -48,6 +48,11 @@ type player struct {
 	lastHit  time.Time
 }
 
+type healthPickup struct {
+	x int
+	y int
+}
+
 func Run() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -72,6 +77,7 @@ func Run() {
 		lastMove: time.Now(),
 	}
 	foe := newEnemy(width, height)
+	pickups := make([]healthPickup, 0)
 	keys := make(chan byte, 16)
 	go readKeys(keys)
 
@@ -80,6 +86,8 @@ func Run() {
 	defer ticker.Stop()
 	enemyTicker := time.NewTicker(180 * time.Millisecond)
 	defer enemyTicker.Stop()
+	pickupTicker := time.NewTicker(10 * time.Second)
+	defer pickupTicker.Stop()
 
 	for {
 		// Refresh the bounds and keep both characters inside the chamber.
@@ -89,6 +97,7 @@ func Run() {
 
 		// Resolve close-range hits before drawing the next frame.
 		resolveBattle(&hero, &foe, time.Now())
+		pickups = collectHealthPickups(&hero, pickups)
 
 		// Check if character should level up
 		levelUp(&hero)
@@ -96,7 +105,7 @@ func Run() {
 		// Switch the warrior's pose while idle.
 		idleTime := time.Since(hero.lastMove)
 		idleFrame := idleTime > 400*time.Millisecond && int(idleTime/(500*time.Millisecond))%2 == 1
-		fmt.Print(renderDungeon(hero, width, height, idleFrame, foe))
+		fmt.Print(renderDungeon(hero, width, height, idleFrame, foe, pickups))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -114,11 +123,13 @@ func Run() {
 		case <-ticker.C:
 		case <-enemyTicker.C:
 			foe.step(width, height)
+		case <-pickupTicker.C:
+			pickups = append(pickups, spawnHealthPickup(width, height))
 		}
 	}
 }
 
-func renderDungeon(hero player, width, height int, idleFrame bool, foe enemy) string {
+func renderDungeon(hero player, width, height int, idleFrame bool, foe enemy, pickups []healthPickup) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -158,6 +169,9 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foe enemy) st
 		}
 	}
 	drawHUD(grid, hero, foe)
+	for _, pickup := range pickups {
+		drawHealthPickup(grid, pickup, left, right, top, bottom)
+	}
 	drawEnemy(grid, foe, left, right, top, bottom)
 	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, idleFrame)
 
@@ -186,7 +200,7 @@ func drawHUD(grid [][]tile, hero player, foe enemy) {
 		text  string
 		color string
 	}{
-		{fmt.Sprintf("HP %d", hero.Health), "\x1b[38;2;232;103;103m"},
+		{fmt.Sprintf("HP %d/%d", hero.Health, hero.MaxHealth), "\x1b[38;2;232;103;103m"},
 		{"   ", ""},
 		{fmt.Sprintf("DMG %d", hero.Damage), "\x1b[38;2;222;222;210m"},
 		{"   ", ""},
@@ -205,6 +219,38 @@ func drawHUD(grid [][]tile, hero player, foe enemy) {
 			grid[0][x] = tile{glyph, segment.color}
 			x++
 		}
+	}
+}
+
+func spawnHealthPickup(width, height int) healthPickup {
+	left, right, top, bottom := chamberBounds(width, height)
+	minX, maxX := left+1, right-1
+	minY, maxY := top+1, bottom-1
+	if minX > maxX {
+		minX, maxX = left, right
+	}
+	if minY > maxY {
+		minY, maxY = top, bottom
+	}
+	return healthPickup{x: randomBetween(minX, maxX), y: randomBetween(minY, maxY)}
+}
+
+func collectHealthPickups(hero *player, pickups []healthPickup) []healthPickup {
+	remaining := pickups[:0]
+	for _, pickup := range pickups {
+		touching := abs(hero.x-pickup.x) <= 2 && abs(hero.y-pickup.y) <= 1
+		if touching && hero.Health < hero.MaxHealth {
+			hero.Health = min(hero.Health+10, hero.MaxHealth)
+			continue
+		}
+		remaining = append(remaining, pickup)
+	}
+	return remaining
+}
+
+func drawHealthPickup(grid [][]tile, pickup healthPickup, left, right, top, bottom int) {
+	if pickup.x > left && pickup.x < right && pickup.y > top && pickup.y < bottom {
+		grid[pickup.y][pickup.x] = tile{'+', "\x1b[38;2;103;222;130m"}
 	}
 }
 

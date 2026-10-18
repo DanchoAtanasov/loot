@@ -2,6 +2,7 @@ package models
 
 type Player struct {
 	Health        int
+	MaxHealth     int
 	Damage        int
 	Level         int
 	MovementSpeed int
@@ -15,6 +16,7 @@ type StatGrowth struct {
 
 var DefaultPlayer = Player{
 	Health:        10,
+	MaxHealth:     10,
 	Damage:        1,
 	Level:         1,
 	MovementSpeed: 1,
