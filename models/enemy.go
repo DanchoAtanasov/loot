@@ -6,7 +6,7 @@ type Enemy struct {
 	ExperienceOnKill int
 }
 
-var EnemyG = Enemy{
+var DefaultEnemy = Enemy{
 	Health:           1,
 	Damage:           1,
 	ExperienceOnKill: 10,

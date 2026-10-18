@@ -8,11 +8,11 @@ type Player struct {
 }
 
 type StatGrowth struct {
-	Health  int
-	Damange int
+	Health int
+	Damage int
 }
 
-var player = Player{
+var DefaultPlayer = Player{
 	Health:        10,
 	Level:         1,
 	MovementSpeed: 1,

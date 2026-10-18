@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"DanchoAtanasov/loot/models"
 )
 
 const (
@@ -30,9 +32,17 @@ type tile struct {
 }
 
 type enemy struct {
+	models.Enemy
 	x, y int
 	dx   int
 	dy   int
+}
+
+type player struct {
+	models.Player
+	x, y     int
+	facing   byte
+	lastMove time.Time
 }
 
 func Run() {
@@ -51,9 +61,14 @@ func Run() {
 
 	width, height := readTerminalSize()
 	playerX, playerY := chamberCenter(width, height)
+	hero := player{
+		Player:   models.DefaultPlayer,
+		x:        playerX,
+		y:        playerY,
+		facing:   's',
+		lastMove: time.Now(),
+	}
 	foe := newEnemy(width, height)
-	facing := byte('s')
-	lastMove := time.Now()
 	keys := make(chan byte, 16)
 	go readKeys(keys)
 
@@ -65,22 +80,20 @@ func Run() {
 
 	for {
 		width, height = readTerminalSize()
-		playerX, playerY = keepPlayerInChamber(playerX, playerY, width, height)
+		hero.x, hero.y = keepPlayerInChamber(hero.x, hero.y, width, height)
 		foe.x, foe.y = keepEnemyInChamber(foe.x, foe.y, width, height)
-		idleFrame := time.Since(lastMove) > 400*time.Millisecond && int(time.Since(lastMove)/(500*time.Millisecond))%2 == 1
-		fmt.Print(renderDungeon(playerX, playerY, width, height, facing, idleFrame, foe))
+		idleTime := time.Since(hero.lastMove)
+		idleFrame := idleTime > 400*time.Millisecond && int(idleTime/(500*time.Millisecond))%2 == 1
+		fmt.Print(renderDungeon(hero, width, height, idleFrame, foe))
 		select {
 		case <-ctx.Done():
 			return
 		case key := <-keys:
-			nextX, nextY, nextFacing := movePlayer(key, playerX, playerY, facing, width, height)
-			if nextX != playerX || nextY != playerY {
-				lastMove = time.Now()
+			nextX, nextY, nextFacing := movePlayer(key, hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height)
+			if nextX != hero.x || nextY != hero.y || nextFacing != hero.facing {
+				hero.lastMove = time.Now()
 			}
-			if nextFacing != facing {
-				lastMove = time.Now()
-			}
-			playerX, playerY, facing = nextX, nextY, nextFacing
+			hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
 		case <-ticker.C:
 		case <-enemyTicker.C:
 			foe.step(width, height)
@@ -88,7 +101,7 @@ func Run() {
 	}
 }
 
-func renderDungeon(playerX, playerY, width, height int, facing byte, idleFrame bool, foe enemy) string {
+func renderDungeon(hero player, width, height int, idleFrame bool, foe enemy) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -128,7 +141,7 @@ func renderDungeon(playerX, playerY, width, height int, facing byte, idleFrame b
 		}
 	}
 	drawEnemy(grid, foe, left, right, top, bottom)
-	drawWarrior(grid, playerX, playerY, left, right, top, bottom, facing, idleFrame)
+	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, idleFrame)
 
 	var frame bytes.Buffer
 	frame.WriteString("\x1b[?2026h\x1b[H")
@@ -154,7 +167,7 @@ func newEnemy(width, height int) enemy {
 	left, right, top, bottom := chamberBounds(width, height)
 	x := min(left+3, right-1)
 	y := min(top+2, bottom-1)
-	return enemy{x: x, y: y, dx: 1, dy: 1}
+	return enemy{Enemy: models.DefaultEnemy, x: x, y: y, dx: 1, dy: 1}
 }
 
 func (e *enemy) step(width, height int) {
@@ -269,19 +282,20 @@ func keepPlayerInChamber(x, y, width, height int) (int, int) {
 	return min(max(x, left+2), right-2), min(max(y, top+1), bottom-1)
 }
 
-func movePlayer(key byte, x, y int, facing byte, width, height int) (int, int, byte) {
+func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height int) (int, int, byte) {
+	step := max(movementSpeed, 1)
 	switch key {
 	case 'w', 'W':
-		y--
+		y -= step
 		facing = 'w'
 	case 's', 'S':
-		y++
+		y += step
 		facing = 's'
 	case 'a', 'A':
-		x -= 2
+		x -= 2 * step
 		facing = 'a'
 	case 'd', 'D':
-		x += 2
+		x += 2 * step
 		facing = 'd'
 	}
 	x, y = keepPlayerInChamber(x, y, width, height)
