@@ -19,7 +19,7 @@ var DefaultPlayer = Player{
 	MaxHealth:     10,
 	Damage:        1,
 	Level:         1,
-	MovementSpeed: 1,
+	MovementSpeed: 2,
 	Experience:    0,
 }
 

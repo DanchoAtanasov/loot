@@ -85,7 +85,7 @@ func Run() {
 	defer ticker.Stop()
 	enemyTicker := time.NewTicker(180 * time.Millisecond)
 	defer enemyTicker.Stop()
-	enemySpawnTicker := time.NewTicker(4 * time.Second)
+	enemySpawnTicker := time.NewTicker(2 * time.Second)
 	defer enemySpawnTicker.Stop()
 	pickupTicker := time.NewTicker(10 * time.Second)
 	defer pickupTicker.Stop()
