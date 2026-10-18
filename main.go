@@ -45,6 +45,8 @@ func main() {
 
 	width, height := readTerminalSize()
 	playerX, playerY := chamberCenter(width, height)
+	facing := byte('s')
+	lastMove := time.Now()
 	keys := make(chan byte, 16)
 	go readKeys(keys)
 
@@ -55,18 +57,26 @@ func main() {
 	for {
 		width, height = readTerminalSize()
 		playerX, playerY = keepPlayerInChamber(playerX, playerY, width, height)
-		fmt.Print(renderDungeon(playerX, playerY, width, height))
+		idleFrame := time.Since(lastMove) > 400*time.Millisecond && int(time.Since(lastMove)/(500*time.Millisecond))%2 == 1
+		fmt.Print(renderDungeon(playerX, playerY, width, height, facing, idleFrame))
 		select {
 		case <-ctx.Done():
 			return
 		case key := <-keys:
-			playerX, playerY = movePlayer(key, playerX, playerY, width, height)
+			nextX, nextY, nextFacing := movePlayer(key, playerX, playerY, facing, width, height)
+			if nextX != playerX || nextY != playerY {
+				lastMove = time.Now()
+			}
+			if nextFacing != facing {
+				lastMove = time.Now()
+			}
+			playerX, playerY, facing = nextX, nextY, nextFacing
 		case <-ticker.C:
 		}
 	}
 }
 
-func renderDungeon(playerX, playerY, width, height int) string {
+func renderDungeon(playerX, playerY, width, height int, facing byte, idleFrame bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -105,7 +115,7 @@ func renderDungeon(playerX, playerY, width, height int) string {
 			grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
 		}
 	}
-	drawWarrior(grid, playerX, playerY, left, right, top, bottom)
+	drawWarrior(grid, playerX, playerY, left, right, top, bottom, facing, idleFrame)
 
 	var frame bytes.Buffer
 	frame.WriteString("\x1b[?2026h\x1b[H")
@@ -127,12 +137,38 @@ func renderDungeon(playerX, playerY, width, height int) string {
 	return frame.String()
 }
 
-func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int) {
+func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte, idleFrame bool) {
 	// Helmet, armored torso with sword, and boots. The player position is the sprite center.
+	chest := '#'
+	head := '^'
+	leftArm, rightArm := '<', '>'
+	legs := " / \\ "
+	switch facing {
+	case 's':
+		head = 'v'
+	case 'a':
+		head, leftArm, rightArm = '<', '>', '<'
+	case 'd':
+		head = '>'
+	case 'w':
+		head, leftArm, rightArm, legs = '^', '/', '\\', "/   \\"
+	}
+	if idleFrame {
+		chest = '+'
+		leftArm, rightArm = '\\', '/'
+		if facing == 'a' {
+			leftArm, rightArm = '/', '\\'
+		}
+		if facing == 'w' {
+			legs = " / \\ "
+		} else {
+			legs = "/   \\"
+		}
+	}
 	sprite := []string{
-		" /^\\ ",
-		"<|#|>",
-		" / \\",
+		string([]rune{' ', '/', head, '\\', ' '}),
+		string([]rune{leftArm, '|', chest, '|', rightArm}),
+		legs,
 	}
 	colors := []string{
 		"\x1b[38;2;220;183;105m",
@@ -176,18 +212,23 @@ func keepPlayerInChamber(x, y, width, height int) (int, int) {
 	return min(max(x, left+2), right-2), min(max(y, top+1), bottom-1)
 }
 
-func movePlayer(key byte, x, y, width, height int) (int, int) {
+func movePlayer(key byte, x, y int, facing byte, width, height int) (int, int, byte) {
 	switch key {
 	case 'w', 'W':
 		y--
+		facing = 'w'
 	case 's', 'S':
 		y++
+		facing = 's'
 	case 'a', 'A':
 		x--
+		facing = 'a'
 	case 'd', 'D':
 		x++
+		facing = 'd'
 	}
-	return keepPlayerInChamber(x, y, width, height)
+	x, y = keepPlayerInChamber(x, y, width, height)
+	return x, y, facing
 }
 
 func readKeys(keys chan<- byte) {
