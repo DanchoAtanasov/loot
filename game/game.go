@@ -242,7 +242,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy,
 	for _, drop := range weaponDrops {
 		drawWeaponDrop(grid, drop, left, right, top, bottom)
 	}
-	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, idleFrame)
+	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, hero.weapon, idleFrame)
 	if drop, ok := nearestWeaponDrop(hero, weaponDrops); ok && weaponDropInRange(hero, drop) {
 		drawWeaponOverlay(grid, hero, drop)
 	}
@@ -663,8 +663,8 @@ func abs(value int) int {
 	return value
 }
 
-func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte, idleFrame bool) {
-	// Helmet, armored torso with sword, and boots. The player position is the sprite center.
+func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte, weapon items.Weapon, idleFrame bool) {
+	// Helmet, armored torso with weapon, and boots. The player position is the sprite center.
 	chest := '#'
 	head := '^'
 	leftArm, rightArm := '<', '>'
@@ -702,7 +702,7 @@ func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte,
 		}
 	}
 	torso := []rune{leftArm, '|', chest, '|', rightArm}
-	torso[swordColumn] = '†'
+	torso[swordColumn] = weaponGlyph(weapon)
 	sprite := []string{
 		string([]rune{' ', '/', head, '\\', ' '}),
 		string(torso),
@@ -724,11 +724,34 @@ func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte,
 				continue
 			}
 			color := colors[row]
-			if glyph == '†' {
-				color = "\x1b[38;2;184;204;221m"
+			if col == swordColumn {
+				color = weaponTierColor(weapon.Tier)
 			}
 			grid[gridY][gridX] = tile{glyph, color}
 		}
+	}
+}
+
+func weaponGlyph(weapon items.Weapon) rune {
+	switch weapon.Name {
+	case "Bow":
+		return ')'
+	case "Spear":
+		return '>'
+	case "Dagger":
+		return '!'
+	case "EnchantedSword":
+		return '*'
+	case "FlamingBow":
+		return '}'
+	case "CursedSword":
+		return '\u2021'
+	case "Excalibur":
+		return '+'
+	case "Trident":
+		return 'Y'
+	default:
+		return '\u2020'
 	}
 }
 
