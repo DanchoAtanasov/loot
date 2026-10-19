@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"os"
 	"os/signal"
@@ -636,6 +637,7 @@ func keepPlayerInChamber(x, y, width, height int) (int, int) {
 
 func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height int) (int, int, byte) {
 	step := max(movementSpeed, 1)
+	horizontalStep := horizontalMovementScale() * step
 	switch key {
 	case 'w', 'W':
 		y -= step
@@ -644,10 +646,10 @@ func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height in
 		y += step
 		facing = 's'
 	case 'a', 'A':
-		x -= 2 * step
+		x -= horizontalStep
 		facing = 'a'
 	case 'd', 'D':
-		x += 2 * step
+		x += horizontalStep
 		facing = 'd'
 	}
 	x, y = keepPlayerInChamber(x, y, width, height)
@@ -693,10 +695,21 @@ func movePlayerHeld(held map[rune]bool, x, y int, facing byte, movementSpeed, wi
 		facing = 's'
 	}
 	step := max(movementSpeed, 1)
-	x += dx * 2 * step
+	x += dx * horizontalMovementScale() * step
 	y += dy * step
 	x, y = keepPlayerInChamber(x, y, width, height)
 	return x, y, facing
+}
+
+func horizontalMovementScale() int {
+	var size terminalSize
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, os.Stdout.Fd(), windowSizeIOCTL, uintptr(unsafe.Pointer(&size)))
+	if errno != 0 || size.cols == 0 || size.rows == 0 || size.x == 0 || size.y == 0 {
+		return 2
+	}
+	cellWidth := float64(size.x) / float64(size.cols)
+	cellHeight := float64(size.y) / float64(size.rows)
+	return max(1, int(math.Round(cellHeight/cellWidth)))
 }
 
 func readKeys(keys chan<- keyEvent) {
