@@ -11,3 +11,9 @@ var DefaultEnemy = Enemy{
 	Damage:           1,
 	ExperienceOnKill: 10,
 }
+
+var TankEnemy = Enemy{
+	Health:           10,
+	Damage:           1,
+	ExperienceOnKill: 150,
+}

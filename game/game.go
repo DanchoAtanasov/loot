@@ -20,8 +20,10 @@ import (
 )
 
 const (
-	framesPerSecond = 60
-	windowSizeIOCTL = 0x40087468 // TIOCGWINSZ on macOS
+	framesPerSecond             = 60
+	windowSizeIOCTL             = 0x40087468 // TIOCGWINSZ on macOS
+	weaponPickupHorizontalRange = 4
+	weaponPickupVerticalRange   = 2
 )
 
 type terminalSize struct {
@@ -46,6 +48,7 @@ type enemy struct {
 	x, y int
 	dx   int
 	dy   int
+	tank bool
 }
 
 type player struct {
@@ -123,7 +126,7 @@ func Run() {
 		// Resolve close-range hits before drawing the next frame.
 		now := time.Now()
 		for i := range foes {
-			foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, width, height)
+			foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, width, height, foes[i].tank)
 			wasAlive := foes[i].Health > 0
 			resolveBattle(&hero, &foes[i], now)
 			if wasAlive && foes[i].Health <= 0 && rand.IntN(100) < 30 {
@@ -418,7 +421,7 @@ func weaponDropPosition(foe enemy, hero player, width, height int) (int, int) {
 			fallback = [2]int{x, y}
 			fallbackDistance = distance
 		}
-		if abs(x-hero.x) <= 2 && abs(y-hero.y) <= 1 {
+		if abs(x-hero.x) <= weaponPickupHorizontalRange && abs(y-hero.y) <= weaponPickupVerticalRange {
 			continue
 		}
 		if distance > bestDistance {
@@ -434,7 +437,7 @@ func weaponDropPosition(foe enemy, hero player, width, height int) (int, int) {
 
 func pickupWeaponDrop(hero *player, drops []weaponDrop) []weaponDrop {
 	for i, drop := range drops {
-		if abs(hero.x-drop.x) <= 2 && abs(hero.y-drop.y) <= 1 {
+		if weaponDropInRange(*hero, drop) {
 			hero.weapon = drop.weapon
 			hero.Damage = drop.weapon.Damage
 			return append(drops[:i], drops[i+1:]...)
@@ -459,7 +462,7 @@ func nearestWeaponDrop(hero player, drops []weaponDrop) (weaponDrop, bool) {
 }
 
 func weaponDropInRange(hero player, drop weaponDrop) bool {
-	return abs(hero.x-drop.x) <= 2 && abs(hero.y-drop.y) <= 1
+	return abs(hero.x-drop.x) <= weaponPickupHorizontalRange && abs(hero.y-drop.y) <= weaponPickupVerticalRange
 }
 
 func equippedWeaponName(weapon items.Weapon) string {
@@ -519,7 +522,18 @@ func newEnemy(width, height int) enemy {
 		minY, maxY = top, bottom
 	}
 
-	foe := enemy{Enemy: models.DefaultEnemy}
+	var foe enemy
+	randomEnemy := rand.IntN(4)
+	if randomEnemy == 3 {
+		foe = enemy{Enemy: models.TankEnemy, tank: true}
+	} else {
+		foe = enemy{Enemy: models.DefaultEnemy}
+	}
+	if foe.tank {
+		maxX = max(minX, maxX-1)
+		maxY = max(minY, maxY-1)
+	}
+
 	switch rand.IntN(4) {
 	case 0: // Enter from the top.
 		foe.x, foe.y = randomBetween(minX, maxX), minY
@@ -555,6 +569,10 @@ func (e *enemy) step(width, height int) {
 	left, right, top, bottom := chamberBounds(width, height)
 	minX, maxX := left+1, right-1
 	minY, maxY := top+1, bottom-1
+	if e.tank {
+		maxX = max(minX, maxX-1)
+		maxY = max(minY, maxY-1)
+	}
 	if e.x+2*e.dx < minX || e.x+2*e.dx > maxX {
 		e.dx *= -1
 	}
@@ -563,19 +581,38 @@ func (e *enemy) step(width, height int) {
 	}
 	e.x += 2 * e.dx
 	e.y += e.dy
-	e.x, e.y = keepEnemyInChamber(e.x, e.y, width, height)
+	e.x, e.y = keepEnemyInChamber(e.x, e.y, width, height, e.tank)
 }
 
-func keepEnemyInChamber(x, y, width, height int) (int, int) {
+func keepEnemyInChamber(x, y, width, height int, tank bool) (int, int) {
 	left, right, top, bottom := chamberBounds(width, height)
 	if right-left < 2 || bottom-top < 2 {
 		return chamberCenter(width, height)
 	}
-	return min(max(x, left+1), right-1), min(max(y, top+1), bottom-1)
+	maxX, maxY := right-1, bottom-1
+	if tank {
+		maxX = max(left+1, maxX-1)
+		maxY = max(top+1, maxY-1)
+	}
+	return min(max(x, left+1), maxX), min(max(y, top+1), maxY)
 }
 
 func drawEnemy(grid [][]tile, foe enemy, left, right, top, bottom int) {
-	if foe.Health > 0 && foe.x > left && foe.x < right && foe.y > top && foe.y < bottom {
+	if foe.Health <= 0 {
+		return
+	}
+	if foe.tank {
+		for dy := 0; dy < 2; dy++ {
+			for dx := 0; dx < 2; dx++ {
+				x, y := foe.x+dx, foe.y+dy
+				if x > left && x < right && y > top && y < bottom {
+					grid[y][x] = tile{'t', "\x1b[38;2;220;92;83m"}
+				}
+			}
+		}
+		return
+	}
+	if foe.x > left && foe.x < right && foe.y > top && foe.y < bottom {
 		grid[foe.y][foe.x] = tile{'g', "\x1b[38;2;220;92;83m"}
 	}
 }
@@ -590,7 +627,7 @@ func resolveBattle(hero *player, foe *enemy, now time.Time) bool {
 	if hero.Health <= 0 || foe.Health <= 0 || now.Sub(hero.lastHit) < 500*time.Millisecond {
 		return false
 	}
-	if abs(hero.x-foe.x) > 2 || abs(hero.y-foe.y) > 1 {
+	if !enemyTouchesPlayer(*foe, hero.x, hero.y) {
 		return false
 	}
 
@@ -601,6 +638,15 @@ func resolveBattle(hero *player, foe *enemy, now time.Time) bool {
 		hero.Experience += foe.ExperienceOnKill
 	}
 	return true
+}
+
+func enemyTouchesPlayer(foe enemy, playerX, playerY int) bool {
+	maxX, maxY := foe.x, foe.y
+	if foe.tank {
+		maxX++
+		maxY++
+	}
+	return playerX >= foe.x-2 && playerX <= maxX+2 && playerY >= foe.y-1 && playerY <= maxY+1
 }
 
 func abs(value int) int {
