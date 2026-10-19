@@ -620,6 +620,8 @@ func drawEnemy(grid [][]tile, foe enemy, left, right, top, bottom int) {
 func levelUp(hero *player) {
 	for hero.Level < len(models.LevelThreshold) && hero.Experience >= models.LevelThreshold[hero.Level] {
 		hero.Level++
+		hero.MaxHealth += models.PlayerStatGrowth.MaxHealth
+		hero.Damage += models.PlayerStatGrowth.Damage
 	}
 }
 

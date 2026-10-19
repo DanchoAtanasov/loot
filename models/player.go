@@ -10,8 +10,8 @@ type Player struct {
 }
 
 type StatGrowth struct {
-	Health int
-	Damage int
+	MaxHealth int
+	Damage    int
 }
 
 var DefaultPlayer = Player{
@@ -25,4 +25,9 @@ var DefaultPlayer = Player{
 
 var LevelThreshold []int = []int{
 	0, 20, 40, 300, 400, 500,
+}
+
+var PlayerStatGrowth StatGrowth = StatGrowth{
+	MaxHealth: 2,
+	Damage:    1,
 }
