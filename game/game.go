@@ -639,7 +639,10 @@ func resolveBattle(hero *player, foe *enemy, now time.Time) bool {
 	}
 
 	foe.Health -= effectiveDamage(*hero)
-	hero.Health = max(hero.Health-max(foe.Damage, 0), 0)
+	foeEffectiveDamage := int(math.Ceil(
+		float64(foe.Damage) * (10.0 / (10.0 + float64(hero.Armour))),
+	))
+	hero.Health = max(hero.Health-max(foeEffectiveDamage, 0), 0)
 	hero.lastHit = now
 	if foe.Health <= 0 {
 		hero.Experience += foe.ExperienceOnKill
