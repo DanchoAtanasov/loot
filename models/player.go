@@ -7,6 +7,7 @@ type Player struct {
 	Level         int
 	MovementSpeed int
 	Experience    int
+	Armour        int
 }
 
 type StatGrowth struct {
@@ -21,6 +22,7 @@ var DefaultPlayer = Player{
 	Level:         1,
 	MovementSpeed: 2,
 	Experience:    0,
+	Armour:        0,
 }
 
 var LevelThreshold []int = []int{
