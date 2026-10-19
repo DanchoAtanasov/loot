@@ -240,6 +240,9 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy,
 		drawWeaponDrop(grid, drop, left, right, top, bottom)
 	}
 	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, idleFrame)
+	if drop, ok := nearestWeaponDrop(hero, weaponDrops); ok && weaponDropInRange(hero, drop) {
+		drawWeaponOverlay(grid, hero, drop)
+	}
 
 	var frame bytes.Buffer
 	frame.WriteString("\x1b[?2026h\x1b[H")
@@ -301,6 +304,69 @@ func drawHUDLine(grid [][]tile, row int, segments []hudSegment) {
 			grid[row][x] = tile{glyph, segment.color}
 			x++
 		}
+	}
+}
+
+func drawWeaponOverlay(grid [][]tile, hero player, drop weaponDrop) {
+	if len(grid) < 13 || len(grid[0]) < 14 {
+		return
+	}
+	panelWidth := min(34, len(grid[0])-2)
+	left := len(grid[0]) - panelWidth - 1
+	top := 3
+	if top+10 >= len(grid) {
+		top = max(2, len(grid)-11)
+	}
+	borderColor := "\x1b[38;2;120;126;138m"
+	drawWeaponPanelBorder(grid, top, left, panelWidth, borderColor)
+	line := func(row int, segments ...hudSegment) {
+		drawPanelLine(grid, row, left, panelWidth, borderColor, segments)
+	}
+	line(top+1, hudSegment{text: " WEAPON COMPARISON", color: "\x1b[38;2;230;221;190m"})
+	line(top+2, hudSegment{text: " Found: ", color: "\x1b[38;2;184;204;221m"}, hudSegment{text: drop.weapon.Name, color: weaponTierColor(drop.weapon.Tier)})
+	line(top+3, hudSegment{text: " Rarity: " + weaponTierName(drop.weapon.Tier), color: weaponTierColor(drop.weapon.Tier)})
+	line(top+4, hudSegment{text: fmt.Sprintf(" Damage: %d", drop.weapon.Damage), color: "\x1b[38;2;222;222;210m"})
+	line(top+5, hudSegment{text: " Equipped: " + equippedWeaponName(hero.weapon), color: weaponTierColor(hero.weapon.Tier)})
+	line(top+6, hudSegment{text: " Rarity: " + weaponTierName(hero.weapon.Tier), color: weaponTierColor(hero.weapon.Tier)})
+	line(top+7, hudSegment{text: fmt.Sprintf(" Damage: %d", hero.weapon.Damage), color: "\x1b[38;2;222;222;210m"})
+	difference := drop.weapon.Damage - hero.weapon.Damage
+	line(top+8, hudSegment{text: fmt.Sprintf(" Damage change: %+d", difference), color: "\x1b[38;2;232;193;104m"})
+	line(top+9, hudSegment{text: " Press SPACE to pick up", color: "\x1b[38;2;184;204;221m"})
+	drawWeaponPanelBorder(grid, top+10, left, panelWidth, borderColor)
+}
+
+func drawPanelLine(grid [][]tile, row, left, width int, borderColor string, segments []hudSegment) {
+	if row < 0 || row >= len(grid) || left < 0 || left+width > len(grid[row]) {
+		return
+	}
+	grid[row][left] = tile{'|', borderColor}
+	grid[row][left+width-1] = tile{'|', borderColor}
+	for offset := 1; offset < width-1; offset++ {
+		grid[row][left+offset] = tile{' ', ""}
+	}
+	column := left + 1
+	limit := left + width - 1
+	for _, segment := range segments {
+		for _, glyph := range segment.text {
+			if column >= limit {
+				return
+			}
+			grid[row][column] = tile{glyph, segment.color}
+			column++
+		}
+	}
+}
+
+func drawWeaponPanelBorder(grid [][]tile, row, left, width int, color string) {
+	if row < 0 || row >= len(grid) || left < 0 || left+width > len(grid[row]) {
+		return
+	}
+	for offset := 0; offset < width; offset++ {
+		glyph := '-'
+		if offset == 0 || offset == width-1 {
+			glyph = '+'
+		}
+		grid[row][left+offset] = tile{glyph, color}
 	}
 }
 
