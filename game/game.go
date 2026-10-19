@@ -271,7 +271,7 @@ func drawHUD(grid [][]tile, hero player, foes []enemy, weaponDrops []weaponDrop)
 	segments := []hudSegment{
 		{fmt.Sprintf("HP %d/%d", hero.Health, hero.MaxHealth), "\x1b[38;2;232;103;103m"},
 		{"   ", ""},
-		{fmt.Sprintf("DMG %d", hero.Damage), "\x1b[38;2;222;222;210m"},
+		{fmt.Sprintf("DMG %d", effectiveDamage(hero)), "\x1b[38;2;222;222;210m"},
 		{"   ", ""},
 		{"WPN ", "\x1b[38;2;184;204;221m"},
 		{equippedWeaponName(hero.weapon), weaponTierColor(hero.weapon.Tier)},
@@ -311,14 +311,14 @@ func drawHUDLine(grid [][]tile, row int, segments []hudSegment) {
 }
 
 func drawWeaponOverlay(grid [][]tile, hero player, drop weaponDrop) {
-	if len(grid) < 13 || len(grid[0]) < 14 {
+	if len(grid) < 15 || len(grid[0]) < 14 {
 		return
 	}
 	panelWidth := min(34, len(grid[0])-2)
 	left := len(grid[0]) - panelWidth - 1
 	top := 3
-	if top+10 >= len(grid) {
-		top = max(2, len(grid)-11)
+	if top+12 >= len(grid) {
+		top = max(2, len(grid)-13)
 	}
 	borderColor := "\x1b[38;2;120;126;138m"
 	drawWeaponPanelBorder(grid, top, left, panelWidth, borderColor)
@@ -328,14 +328,16 @@ func drawWeaponOverlay(grid [][]tile, hero player, drop weaponDrop) {
 	line(top+1, hudSegment{text: " WEAPON COMPARISON", color: "\x1b[38;2;230;221;190m"})
 	line(top+2, hudSegment{text: " Found: ", color: "\x1b[38;2;184;204;221m"}, hudSegment{text: drop.weapon.Name, color: weaponTierColor(drop.weapon.Tier)})
 	line(top+3, hudSegment{text: " Rarity: " + weaponTierName(drop.weapon.Tier), color: weaponTierColor(drop.weapon.Tier)})
-	line(top+4, hudSegment{text: fmt.Sprintf(" Damage: %d", drop.weapon.Damage), color: "\x1b[38;2;222;222;210m"})
-	line(top+5, hudSegment{text: " Equipped: " + equippedWeaponName(hero.weapon), color: weaponTierColor(hero.weapon.Tier)})
-	line(top+6, hudSegment{text: " Rarity: " + weaponTierName(hero.weapon.Tier), color: weaponTierColor(hero.weapon.Tier)})
-	line(top+7, hudSegment{text: fmt.Sprintf(" Damage: %d", hero.weapon.Damage), color: "\x1b[38;2;222;222;210m"})
-	difference := drop.weapon.Damage - hero.weapon.Damage
-	line(top+8, hudSegment{text: fmt.Sprintf(" Damage change: %+d", difference), color: "\x1b[38;2;232;193;104m"})
-	line(top+9, hudSegment{text: " Press SPACE to pick up", color: "\x1b[38;2;184;204;221m"})
-	drawWeaponPanelBorder(grid, top+10, left, panelWidth, borderColor)
+	line(top+4, hudSegment{text: fmt.Sprintf(" Weapon DMG: %d", drop.weapon.Damage), color: "\x1b[38;2;222;222;210m"})
+	line(top+5, hudSegment{text: fmt.Sprintf(" Total DMG: %d", hero.Damage+drop.weapon.Damage), color: "\x1b[38;2;232;193;104m"})
+	line(top+6, hudSegment{text: " Equipped: " + equippedWeaponName(hero.weapon), color: weaponTierColor(hero.weapon.Tier)})
+	line(top+7, hudSegment{text: " Rarity: " + weaponTierName(hero.weapon.Tier), color: weaponTierColor(hero.weapon.Tier)})
+	line(top+8, hudSegment{text: fmt.Sprintf(" Weapon DMG: %d", hero.weapon.Damage), color: "\x1b[38;2;222;222;210m"})
+	line(top+9, hudSegment{text: fmt.Sprintf(" Total DMG: %d", effectiveDamage(hero)), color: "\x1b[38;2;232;193;104m"})
+	difference := hero.Damage + drop.weapon.Damage - effectiveDamage(hero)
+	line(top+10, hudSegment{text: fmt.Sprintf(" Damage change: %+d", difference), color: "\x1b[38;2;232;193;104m"})
+	line(top+11, hudSegment{text: " Press SPACE to pick up", color: "\x1b[38;2;184;204;221m"})
+	drawWeaponPanelBorder(grid, top+12, left, panelWidth, borderColor)
 }
 
 func drawPanelLine(grid [][]tile, row, left, width int, borderColor string, segments []hudSegment) {
@@ -439,7 +441,6 @@ func pickupWeaponDrop(hero *player, drops []weaponDrop) []weaponDrop {
 	for i, drop := range drops {
 		if weaponDropInRange(*hero, drop) {
 			hero.weapon = drop.weapon
-			hero.Damage = drop.weapon.Damage
 			return append(drops[:i], drops[i+1:]...)
 		}
 	}
@@ -470,6 +471,10 @@ func equippedWeaponName(weapon items.Weapon) string {
 		return "None"
 	}
 	return weapon.Name
+}
+
+func effectiveDamage(hero player) int {
+	return max(hero.Damage, 0) + max(hero.weapon.Damage, 0)
 }
 
 func weaponTierName(tier items.ItemTier) string {
@@ -633,7 +638,7 @@ func resolveBattle(hero *player, foe *enemy, now time.Time) bool {
 		return false
 	}
 
-	foe.Health -= max(hero.Damage, 0)
+	foe.Health -= effectiveDamage(*hero)
 	hero.Health = max(hero.Health-max(foe.Damage, 0), 0)
 	hero.lastHit = now
 	if foe.Health <= 0 {
