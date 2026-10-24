@@ -119,6 +119,8 @@ func Run() {
 	deathEffects := make([]enemyDeathEffect, 0)
 	pickups := make([]healthPickup, 0)
 	gearDrops := make([]gearDrop, 0)
+	showEquipment := false
+	paused := false
 	keys := make(chan keyEvent, 32)
 	heldKeys := make(map[rune]bool)
 	lastStep := time.Time{}
@@ -139,48 +141,50 @@ func Run() {
 		width, height = readTerminalSize()
 		hero.x, hero.y = keepPlayerInChamber(hero.x, hero.y, width, height)
 
-		// Resolve close-range hits before drawing the next frame.
+		// Keep combat and world timers frozen while the game is paused.
 		now := time.Now()
-		for i := range foes {
-			foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, width, height, foes[i].tank)
-			wasAlive := foes[i].Health > 0
-			if resolveBattle(&hero, &foes[i], now) {
-				hero.facing = facingEnemy(hero, foes[i])
-				hero.attackStarted = now
-			}
-			if wasAlive && foes[i].Health <= 0 && rand.IntN(100) < 30 {
-				dropX, dropY := weaponDropPosition(foes[i], hero, width, height)
-				drop := gearDrop{x: dropX, y: dropY}
-				if rand.IntN(2) == 0 {
-					drop.weapon = items.DropItem()
-				} else {
-					drop.armour = items.DropArmour()
-					drop.isArmour = true
+		if !paused {
+			for i := range foes {
+				foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, width, height, foes[i].tank)
+				wasAlive := foes[i].Health > 0
+				if resolveBattle(&hero, &foes[i], now) {
+					hero.facing = facingEnemy(hero, foes[i])
+					hero.attackStarted = now
 				}
-				gearDrops = append(gearDrops, drop)
+				if wasAlive && foes[i].Health <= 0 && rand.IntN(100) < 30 {
+					dropX, dropY := weaponDropPosition(foes[i], hero, width, height)
+					drop := gearDrop{x: dropX, y: dropY}
+					if rand.IntN(2) == 0 {
+						drop.weapon = items.DropItem()
+					} else {
+						drop.armour = items.DropArmour()
+						drop.isArmour = true
+					}
+					gearDrops = append(gearDrops, drop)
+				}
+				if wasAlive && foes[i].Health <= 0 {
+					deathEffects = append(deathEffects, enemyDeathEffect{x: foes[i].x, y: foes[i].y, tank: foes[i].tank, startedAt: now})
+				}
 			}
-			if wasAlive && foes[i].Health <= 0 {
-				deathEffects = append(deathEffects, enemyDeathEffect{x: foes[i].x, y: foes[i].y, tank: foes[i].tank, startedAt: now})
+			activeEffects := deathEffects[:0]
+			for _, effect := range deathEffects {
+				if now.Sub(effect.startedAt) < enemyDeathEffectDuration {
+					activeEffects = append(activeEffects, effect)
+				}
 			}
-		}
-		activeEffects := deathEffects[:0]
-		for _, effect := range deathEffects {
-			if now.Sub(effect.startedAt) < enemyDeathEffectDuration {
-				activeEffects = append(activeEffects, effect)
+			deathEffects = activeEffects
+			alive := foes[:0]
+			for _, foe := range foes {
+				if foe.Health > 0 {
+					alive = append(alive, foe)
+				}
 			}
-		}
-		deathEffects = activeEffects
-		alive := foes[:0]
-		for _, foe := range foes {
-			if foe.Health > 0 {
-				alive = append(alive, foe)
-			}
-		}
-		foes = alive
-		pickups = collectHealthPickups(&hero, pickups)
+			foes = alive
+			pickups = collectHealthPickups(&hero, pickups)
 
-		// Check if character should level up
-		levelUp(&hero)
+			// Check if character should level up
+			levelUp(&hero)
+		}
 
 		// Switch the warrior's pose while idle.
 		idleTime := time.Since(hero.lastMove)
@@ -189,7 +193,7 @@ func Run() {
 		if !hero.attackStarted.IsZero() && time.Since(hero.attackStarted) < 240*time.Millisecond {
 			swingFrame = int(time.Since(hero.attackStarted) / (80 * time.Millisecond))
 		}
-		fmt.Print(renderDungeon(hero, width, height, idleFrame, swingFrame, foes, pickups, gearDrops, deathEffects))
+		fmt.Print(renderDungeon(hero, width, height, idleFrame, swingFrame, foes, pickups, gearDrops, deathEffects, showEquipment))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -198,6 +202,20 @@ func Run() {
 		case event := <-keys:
 			if event.key == 3 && event.pressed {
 				stop()
+				continue
+			}
+			if (event.key == 'i' || event.key == 'I') && event.pressed {
+				showEquipment = !showEquipment
+				paused = showEquipment
+				clear(heldKeys)
+				lastStep = time.Now()
+				if !paused {
+					enemySpawnTicker.Reset(7 * time.Second)
+					pickupTicker.Reset(10 * time.Second)
+				}
+				continue
+			}
+			if paused {
 				continue
 			}
 			if event.key == ' ' && event.pressed {
@@ -213,7 +231,7 @@ func Run() {
 				hero.lastMove = time.Now()
 			}
 		case now := <-ticker.C:
-			if hero.Health > 0 && now.Sub(lastStep) >= 120*time.Millisecond {
+			if !paused && hero.Health > 0 && now.Sub(lastStep) >= 120*time.Millisecond {
 				nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height, foes, deathEffects)
 				if nextX != hero.x || nextY != hero.y {
 					hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
@@ -222,17 +240,23 @@ func Run() {
 				lastStep = now
 			}
 		case <-enemyTicker.C:
-			stepEnemyPacks(foes, width, height, time.Now())
+			if !paused {
+				stepEnemyPacks(foes, width, height, time.Now())
+			}
 		case <-enemySpawnTicker.C:
-			packID++
-			foes = append(foes, spawnEnemyPack(width, height, packID)...)
+			if !paused {
+				packID++
+				foes = append(foes, spawnEnemyPack(width, height, packID)...)
+			}
 		case <-pickupTicker.C:
-			pickups = append(pickups, spawnHealthPickup(width, height))
+			if !paused {
+				pickups = append(pickups, spawnHealthPickup(width, height))
+			}
 		}
 	}
 }
 
-func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect) string {
+func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, showEquipment bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -286,6 +310,9 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) {
 		drawGearOverlay(grid, hero, drop)
 	}
+	if showEquipment {
+		drawEquipmentPanel(grid, hero)
+	}
 
 	var frame bytes.Buffer
 	frame.WriteString("\x1b[?2026h\x1b[H")
@@ -329,7 +356,7 @@ func drawHUD(grid [][]tile, hero player, foes []enemy, gearDrops []gearDrop) {
 	if len(grid) < 2 {
 		return
 	}
-	itemSegments := []hudSegment{{text: "DROP: none", color: "\x1b[38;2;184;204;221m"}}
+	itemSegments := []hudSegment{{text: "DROP: none", color: "\x1b[38;2;184;204;221m"}, {text: "   [I: ITEMS / PAUSE]", color: "\x1b[38;2;232;193;104m"}}
 	if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) {
 		if drop.isArmour {
 			itemSegments = []hudSegment{
@@ -344,6 +371,9 @@ func drawHUD(grid [][]tile, hero player, foes []enemy, gearDrops []gearDrop) {
 				{text: fmt.Sprintf(" %s DMG %d  [SPACE nearby]", weaponTierName(drop.weapon.Tier), drop.weapon.Damage), color: "\x1b[38;2;184;204;221m"},
 			}
 		}
+	}
+	if len(itemSegments) > 1 && itemSegments[0].text == "DROP: " {
+		itemSegments = append(itemSegments, hudSegment{text: "   [I: ITEMS / PAUSE]", color: "\x1b[38;2;232;193;104m"})
 	}
 	drawHUDLine(grid, 1, itemSegments)
 }
@@ -402,6 +432,30 @@ func drawGearOverlay(grid [][]tile, hero player, drop gearDrop) {
 	line(top+10, hudSegment{text: fmt.Sprintf(" Damage change: %+d", difference), color: "\x1b[38;2;232;193;104m"})
 	line(top+11, hudSegment{text: " Press SPACE to pick up", color: "\x1b[38;2;184;204;221m"})
 	drawWeaponPanelBorder(grid, top+12, left, panelWidth, borderColor)
+}
+
+func drawEquipmentPanel(grid [][]tile, hero player) {
+	if len(grid) < 12 || len(grid[0]) < 24 {
+		return
+	}
+	panelWidth := min(42, len(grid[0])-2)
+	left := (len(grid[0]) - panelWidth) / 2
+	top := (len(grid) - 11) / 2
+	borderColor := "\x1b[38;2;120;126;138m"
+	drawWeaponPanelBorder(grid, top, left, panelWidth, borderColor)
+	line := func(offset int, segments ...hudSegment) {
+		drawPanelLine(grid, top+offset, left, panelWidth, borderColor, segments)
+	}
+	line(1, hudSegment{text: " EQUIPPED ITEMS", color: "\x1b[38;2;230;221;190m"})
+	line(2, hudSegment{text: " Weapon: ", color: "\x1b[38;2;184;204;221m"}, hudSegment{text: equippedWeaponName(hero.weapon), color: weaponTierColor(hero.weapon.Tier)})
+	line(3, hudSegment{text: " Rarity: " + weaponTierName(hero.weapon.Tier), color: weaponTierColor(hero.weapon.Tier)})
+	line(4, hudSegment{text: fmt.Sprintf(" Weapon damage: %d", hero.weapon.Damage), color: "\x1b[38;2;222;222;210m"})
+	line(5, hudSegment{text: fmt.Sprintf(" Total damage: %d", effectiveDamage(hero)), color: "\x1b[38;2;232;193;104m"})
+	line(6, hudSegment{text: " Armour: ", color: "\x1b[38;2;184;204;221m"}, hudSegment{text: equippedArmourName(hero.armour), color: weaponTierColor(hero.armour.Tier)})
+	line(7, hudSegment{text: " Rarity: " + weaponTierName(hero.armour.Tier), color: weaponTierColor(hero.armour.Tier)})
+	line(8, hudSegment{text: fmt.Sprintf(" Defence: %d", hero.Armour), color: "\x1b[38;2;222;222;210m"})
+	line(9, hudSegment{text: " Press I to close and resume", color: "\x1b[38;2;184;204;221m"})
+	drawWeaponPanelBorder(grid, top+10, left, panelWidth, borderColor)
 }
 
 func drawPanelLine(grid [][]tile, row, left, width int, borderColor string, segments []hudSegment) {
