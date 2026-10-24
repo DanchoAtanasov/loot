@@ -449,36 +449,34 @@ func drawEquipmentPanel(grid [][]tile, hero player) {
 	line(1, hudSegment{text: " EQUIPPED ITEMS — PAUSED", color: "\x1b[38;2;230;221;190m"})
 	weaponColor := weaponTierColor(hero.weapon.Tier)
 	armourColor := weaponTierColor(hero.armour.Tier)
-	weaponLeft, armourLeft := left+12, left+panelWidth/2+7
-	drawEquipmentArt(grid, weaponLeft+5, top+2, false, weaponColor)
-	drawEquipmentArt(grid, armourLeft+5, top+2, true, armourColor)
-	line(7,
-		hudSegment{text: fmt.Sprintf("  WEAPON: %-20s", equippedWeaponName(hero.weapon)), color: weaponColor},
-		hudSegment{text: "   CHEST: " + equippedArmourName(hero.armour), color: armourColor},
-	)
-	line(8,
-		hudSegment{text: fmt.Sprintf("  %s  DMG %d", weaponTierName(hero.weapon.Tier), hero.weapon.Damage), color: weaponColor},
-		hudSegment{text: fmt.Sprintf("   %s  DEF %d", weaponTierName(hero.armour.Tier), hero.Armour), color: armourColor},
-	)
-	line(9, hudSegment{text: fmt.Sprintf("  TOTAL DAMAGE %d", effectiveDamage(hero)), color: "\x1b[38;2;232;193;104m"}, hudSegment{text: fmt.Sprintf("   TOTAL DEFENCE %d", hero.Armour), color: "\x1b[38;2;222;222;210m"})
-	line(11, hudSegment{text: " DEFENCE SLOTS", color: "\x1b[38;2;230;221;190m"})
-	line(12, hudSegment{text: "  [H] HELMET     Not equipped", color: "\x1b[38;2;184;204;221m"}, hudSegment{text: "  [C] CHEST      " + equippedArmourName(hero.armour), color: armourColor})
-	line(13, hudSegment{text: "  [B] BELT       Not equipped", color: "\x1b[38;2;184;204;221m"}, hudSegment{text: "  [O] OFF-HAND   Not equipped", color: "\x1b[38;2;184;204;221m"})
+	centerSlot := left + (panelWidth-20)/2
+	drawEquipmentSlot(grid, centerSlot, top+2, 20, "HELMET", "Not equipped", "", "\x1b[38;2;184;204;221m", []string{"^^", "||"})
+	drawEquipmentSlot(grid, left+2, top+6, 20, "WEAPON", equippedWeaponName(hero.weapon), fmt.Sprintf("%s  DMG %d", weaponTierName(hero.weapon.Tier), hero.weapon.Damage), weaponColor, []string{" /", "/|"})
+	drawEquipmentSlot(grid, centerSlot, top+6, 20, "CHEST", equippedArmourName(hero.armour), fmt.Sprintf("%s  DEF %d", weaponTierName(hero.armour.Tier), hero.Armour), armourColor, []string{"[#", "##"})
+	drawEquipmentSlot(grid, left+panelWidth-22, top+6, 20, "OFF-HAND", "Not equipped", "", "\x1b[38;2;184;204;221m", []string{"[ ]", "|#|"})
+	drawEquipmentSlot(grid, centerSlot, top+10, 20, "BELT", "Not equipped", "", "\x1b[38;2;184;204;221m", []string{"===", "|||"})
+	line(15, hudSegment{text: fmt.Sprintf(" TOTAL DAMAGE %d", effectiveDamage(hero)), color: "\x1b[38;2;232;193;104m"}, hudSegment{text: fmt.Sprintf("     TOTAL DEFENCE %d", hero.Armour), color: "\x1b[38;2;222;222;210m"})
 	line(16, hudSegment{text: " Press I to close and resume", color: "\x1b[38;2;184;204;221m"})
 	drawWeaponPanelBorder(grid, top+17, left, panelWidth, borderColor)
 }
 
-func drawEquipmentArt(grid [][]tile, x, y int, armour bool, color string) {
-	art := []string{"  | ", "  |/", " /| ", " /  ", "  | "}
-	if armour {
-		art = []string{" /-\\ ", "/###\\", "|###|", "\\###/", " \\-/ "}
+func drawEquipmentSlot(grid [][]tile, x, y, width int, title, name, stats, color string, art []string) {
+	borderColor := "\x1b[38;2;120;126;138m"
+	drawWeaponPanelBorder(grid, y, x, width, borderColor)
+	drawPanelLine(grid, y+1, x, width, borderColor, []hudSegment{{text: "     " + title, color: borderColor}})
+	drawPanelLine(grid, y+2, x, width, borderColor, []hudSegment{{text: "     " + name, color: color}})
+	if stats != "" {
+		drawPanelLine(grid, y+3, x, width, borderColor, []hudSegment{{text: "     " + stats, color: color}})
+	} else {
+		drawPanelLine(grid, y+3, x, width, borderColor, nil)
 	}
-	for row, line := range art {
-		for column, glyph := range line {
-			if glyph == ' ' || y+row < 0 || y+row >= len(grid) || x+column < 0 || x+column >= len(grid[y+row]) {
+	drawWeaponPanelBorder(grid, y+4, x, width, borderColor)
+	for row, artLine := range art {
+		for column, glyph := range artLine {
+			if row+1 >= 4 || column >= 3 || glyph == ' ' || y+row+1 >= len(grid) || x+column+1 >= len(grid[y+row+1]) {
 				continue
 			}
-			grid[y+row][x+column] = tile{glyph, color}
+			grid[y+row+1][x+column+1] = tile{glyph, color}
 		}
 	}
 }
