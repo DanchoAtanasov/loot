@@ -56,12 +56,13 @@ type enemy struct {
 
 type player struct {
 	models.Player
-	weapon   items.Weapon
-	armour   items.Armour
-	x, y     int
-	facing   byte
-	lastMove time.Time
-	lastHit  time.Time
+	weapon        items.Weapon
+	armour        items.Armour
+	x, y          int
+	facing        byte
+	lastMove      time.Time
+	lastHit       time.Time
+	attackStarted time.Time
 }
 
 type healthPickup struct {
@@ -135,7 +136,10 @@ func Run() {
 		for i := range foes {
 			foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, width, height, foes[i].tank)
 			wasAlive := foes[i].Health > 0
-			resolveBattle(&hero, &foes[i], now)
+			if resolveBattle(&hero, &foes[i], now) {
+				hero.facing = facingEnemy(hero, foes[i])
+				hero.attackStarted = now
+			}
 			if wasAlive && foes[i].Health <= 0 && rand.IntN(100) < 30 {
 				dropX, dropY := weaponDropPosition(foes[i], hero, width, height)
 				drop := gearDrop{x: dropX, y: dropY}
@@ -163,7 +167,11 @@ func Run() {
 		// Switch the warrior's pose while idle.
 		idleTime := time.Since(hero.lastMove)
 		idleFrame := idleTime > 400*time.Millisecond && int(idleTime/(500*time.Millisecond))%2 == 1
-		fmt.Print(renderDungeon(hero, width, height, idleFrame, foes, pickups, gearDrops))
+		swingFrame := -1
+		if !hero.attackStarted.IsZero() && time.Since(hero.attackStarted) < 240*time.Millisecond {
+			swingFrame = int(time.Since(hero.attackStarted) / (80 * time.Millisecond))
+		}
+		fmt.Print(renderDungeon(hero, width, height, idleFrame, swingFrame, foes, pickups, gearDrops))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -206,7 +214,7 @@ func Run() {
 	}
 }
 
-func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy, pickups []healthPickup, gearDrops []gearDrop) string {
+func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -255,7 +263,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy,
 	for _, drop := range gearDrops {
 		drawGearDrop(grid, drop, left, right, top, bottom)
 	}
-	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, hero.weapon, idleFrame)
+	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, hero.weapon, idleFrame, swingFrame)
 	if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) {
 		drawGearOverlay(grid, hero, drop)
 	}
@@ -806,7 +814,36 @@ func abs(value int) int {
 	return value
 }
 
-func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte, weapon items.Weapon, idleFrame bool) {
+func facingEnemy(hero player, foe enemy) byte {
+	enemyX, enemyY := foe.x, foe.y
+	if foe.tank {
+		enemyX++
+		enemyY++
+	}
+	dx, dy := enemyX-hero.x, enemyY-hero.y
+	switch {
+	case dx < 0 && dy < 0:
+		return 'q'
+	case dx > 0 && dy < 0:
+		return 'e'
+	case dx < 0 && dy > 0:
+		return 'z'
+	case dx > 0 && dy > 0:
+		return 'c'
+	case dx < 0:
+		return 'a'
+	case dx > 0:
+		return 'd'
+	case dy < 0:
+		return 'w'
+	case dy > 0:
+		return 's'
+	default:
+		return hero.facing
+	}
+}
+
+func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte, weapon items.Weapon, idleFrame bool, swingFrame int) {
 	// Helmet, armored torso with weapon, and boots. The player position is the sprite center.
 	chest := '#'
 	head := '^'
@@ -871,6 +908,35 @@ func drawWarrior(grid [][]tile, x, y, left, right, top, bottom int, facing byte,
 				color = weaponTierColor(weapon.Tier)
 			}
 			grid[gridY][gridX] = tile{glyph, color}
+		}
+	}
+	if swingFrame >= 0 {
+		slashX, slashY, slashGlyph := x, y, rune('*')
+		switch facing {
+		case 'a':
+			slashX, slashGlyph = x-3, '-'
+		case 'd':
+			slashX, slashGlyph = x+3, '-'
+		case 'w':
+			slashY, slashGlyph = y-2, '|'
+		case 's':
+			slashY, slashGlyph = y+2, '|'
+		case 'q':
+			slashX, slashY, slashGlyph = x-3, y-1, '\\'
+		case 'e':
+			slashX, slashY, slashGlyph = x+3, y-1, '/'
+		case 'z':
+			slashX, slashY, slashGlyph = x-3, y+1, '/'
+		case 'c':
+			slashX, slashY, slashGlyph = x+3, y+1, '\\'
+		}
+		if swingFrame == 0 {
+			slashGlyph = '.'
+		} else if swingFrame == 2 {
+			slashGlyph = '*'
+		}
+		if slashX > left && slashX < right && slashY > top && slashY < bottom {
+			grid[slashY][slashX] = tile{slashGlyph, "\x1b[38;2;255;227;139m"}
 		}
 	}
 }
