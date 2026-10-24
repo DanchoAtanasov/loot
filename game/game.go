@@ -45,10 +45,13 @@ type hudSegment struct {
 
 type enemy struct {
 	models.Enemy
-	x, y int
-	dx   int
-	dy   int
-	tank bool
+	x, y       int
+	dx, dy     int
+	tank       bool
+	brute      bool
+	packID     int
+	moveAt     time.Time
+	nextMoveAt time.Time
 }
 
 type player struct {
@@ -100,7 +103,8 @@ func Run() {
 		facing:   's',
 		lastMove: time.Now(),
 	}
-	foes := []enemy{newEnemy(width, height)}
+	packID := 1
+	foes := spawnEnemyPack(width, height, packID)
 	pickups := make([]healthPickup, 0)
 	weaponDrops := make([]weaponDrop, 0)
 	keys := make(chan keyEvent, 32)
@@ -113,7 +117,7 @@ func Run() {
 	defer ticker.Stop()
 	enemyTicker := time.NewTicker(180 * time.Millisecond)
 	defer enemyTicker.Stop()
-	enemySpawnTicker := time.NewTicker(2 * time.Second)
+	enemySpawnTicker := time.NewTicker(7 * time.Second)
 	defer enemySpawnTicker.Stop()
 	pickupTicker := time.NewTicker(10 * time.Second)
 	defer pickupTicker.Stop()
@@ -182,11 +186,10 @@ func Run() {
 				lastStep = now
 			}
 		case <-enemyTicker.C:
-			for i := range foes {
-				foes[i].step(width, height)
-			}
+			stepEnemyPacks(foes, width, height, time.Now())
 		case <-enemySpawnTicker.C:
-			foes = append(foes, newEnemy(width, height))
+			packID++
+			foes = append(foes, spawnEnemyPack(width, height, packID)...)
 		case <-pickupTicker.C:
 			pickups = append(pickups, spawnHealthPickup(width, height))
 		}
@@ -516,44 +519,94 @@ func drawHealthPickup(grid [][]tile, pickup healthPickup, left, right, top, bott
 	}
 }
 
-func newEnemy(width, height int) enemy {
+func spawnEnemyPack(width, height, packID int) []enemy {
+	packSize := 2 + rand.IntN(2)
+	tankPack := rand.IntN(4) == 0
+	if tankPack {
+		packSize = 1
+	}
+	pack := make([]enemy, 0, packSize)
+	for i := 0; i < packSize; i++ {
+		tank := tankPack
+		brute := !tank && rand.IntN(4) == 0
+		pack = append(pack, newEnemy(tank, brute))
+	}
+
+	pack[0].x, pack[0].y = randomPackAnchor(width, height, pack[0].tank)
+	for i := 1; i < len(pack); i++ {
+		pack[i].x, pack[i].y = nearbySpawnPosition(pack[0], pack[:i], width, height)
+	}
+	dx, dy := randomPackDirection()
+	moveAt := time.Now().Add(2 * time.Second)
+	for i := range pack {
+		pack[i].dx, pack[i].dy = dx, dy
+		pack[i].packID = packID
+		pack[i].moveAt = moveAt
+		pack[i].nextMoveAt = moveAt
+	}
+	return pack
+}
+
+func randomPackAnchor(width, height int, tank bool) (int, int) {
 	left, right, top, bottom := chamberBounds(width, height)
-	minX, maxX := left+1, right-1
+	minX, maxX := left+2, right-2
 	minY, maxY := top+1, bottom-1
+	if tank {
+		maxX--
+		maxY--
+	}
 	if minX > maxX {
-		minX, maxX = left, right
+		minX, maxX = left+1, right-1
 	}
 	if minY > maxY {
-		minY, maxY = top, bottom
+		minY, maxY = top+1, bottom-1
 	}
+	return randomBetween(minX, maxX), randomBetween(minY, maxY)
+}
 
-	var foe enemy
-	randomEnemy := rand.IntN(4)
-	if randomEnemy == 3 {
-		foe = enemy{Enemy: models.TankEnemy, tank: true}
-	} else {
-		foe = enemy{Enemy: models.DefaultEnemy}
+func nearbySpawnPosition(anchor enemy, pack []enemy, width, height int) (int, int) {
+	positions := make([][2]int, 0, 14)
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -2; dx <= 2; dx++ {
+			if dx == 0 && dy == 0 {
+				continue
+			}
+			x, y := keepEnemyInChamber(anchor.x+dx, anchor.y+dy, width, height, false)
+			occupied := false
+			for _, foe := range pack {
+				if foe.x == x && foe.y == y {
+					occupied = true
+					break
+				}
+			}
+			if !occupied {
+				positions = append(positions, [2]int{x, y})
+			}
+		}
 	}
-	if foe.tank {
-		maxX = max(minX, maxX-1)
-		maxY = max(minY, maxY-1)
+	if len(positions) == 0 {
+		return anchor.x, anchor.y
 	}
+	position := positions[rand.IntN(len(positions))]
+	return position[0], position[1]
+}
 
-	switch rand.IntN(4) {
-	case 0: // Enter from the top.
-		foe.x, foe.y = randomBetween(minX, maxX), minY
-		foe.dx, foe.dy = randomDirection(), 1
-	case 1: // Enter from the bottom.
-		foe.x, foe.y = randomBetween(minX, maxX), maxY
-		foe.dx, foe.dy = randomDirection(), -1
-	case 2: // Enter from the left.
-		foe.x, foe.y = minX, randomBetween(minY, maxY)
-		foe.dx, foe.dy = 1, randomDirection()
-	case 3: // Enter from the right.
-		foe.x, foe.y = maxX, randomBetween(minY, maxY)
-		foe.dx, foe.dy = -1, randomDirection()
+func newEnemy(tank, brute bool) enemy {
+	foe := enemy{Enemy: models.DefaultEnemy, tank: tank, brute: brute}
+	if tank {
+		foe.Enemy = models.TankEnemy
+	} else if brute {
+		foe.Enemy = models.BruteEnemy
 	}
 	return foe
+}
+
+func randomPackDirection() (int, int) {
+	dx, dy := rand.IntN(3)-1, rand.IntN(3)-1
+	if dx == 0 && dy == 0 {
+		dx = 1
+	}
+	return dx, dy
 }
 
 func randomBetween(minimum, maximum int) int {
@@ -567,26 +620,50 @@ func randomDirection() int {
 	return 1
 }
 
-func (e *enemy) step(width, height int) {
-	if e.Health <= 0 {
-		return
+func stepEnemyPacks(foes []enemy, width, height int, now time.Time) {
+	groups := make(map[int][]int)
+	for i := range foes {
+		if foes[i].Health > 0 {
+			groups[foes[i].packID] = append(groups[foes[i].packID], i)
+		}
 	}
 	left, right, top, bottom := chamberBounds(width, height)
-	minX, maxX := left+1, right-1
-	minY, maxY := top+1, bottom-1
-	if e.tank {
-		maxX = max(minX, maxX-1)
-		maxY = max(minY, maxY-1)
+	for _, members := range groups {
+		leader := foes[members[0]]
+		if now.Before(leader.moveAt) || now.Before(leader.nextMoveAt) {
+			continue
+		}
+		dx, dy := leader.dx, leader.dy
+		reverseX, reverseY := false, false
+		for _, index := range members {
+			foe := foes[index]
+			footprintX, footprintY := 1, 1
+			if foe.tank {
+				footprintX, footprintY = 2, 2
+			}
+			if foe.x+2*dx < left+1 || foe.x+2*dx+footprintX-1 > right-1 {
+				reverseX = true
+			}
+			if foe.y+dy < top+1 || foe.y+dy+footprintY-1 > bottom-1 {
+				reverseY = true
+			}
+		}
+		if reverseX {
+			dx = -dx
+		}
+		if reverseY {
+			dy = -dy
+		}
+		nextMoveAt := now.Add(700 * time.Millisecond)
+		for _, index := range members {
+			foe := &foes[index]
+			foe.dx, foe.dy = dx, dy
+			foe.x += 2 * dx
+			foe.y += dy
+			foe.x, foe.y = keepEnemyInChamber(foe.x, foe.y, width, height, foe.tank)
+			foe.nextMoveAt = nextMoveAt
+		}
 	}
-	if e.x+2*e.dx < minX || e.x+2*e.dx > maxX {
-		e.dx *= -1
-	}
-	if e.y+e.dy < minY || e.y+e.dy > maxY {
-		e.dy *= -1
-	}
-	e.x += 2 * e.dx
-	e.y += e.dy
-	e.x, e.y = keepEnemyInChamber(e.x, e.y, width, height, e.tank)
 }
 
 func keepEnemyInChamber(x, y, width, height int, tank bool) (int, int) {
@@ -618,7 +695,11 @@ func drawEnemy(grid [][]tile, foe enemy, left, right, top, bottom int) {
 		return
 	}
 	if foe.x > left && foe.x < right && foe.y > top && foe.y < bottom {
-		grid[foe.y][foe.x] = tile{'g', "\x1b[38;2;220;92;83m"}
+		glyph, color := 'g', "\x1b[38;2;220;92;83m"
+		if foe.brute {
+			glyph, color = 'B', "\x1b[38;2;227;153;74m"
+		}
+		grid[foe.y][foe.x] = tile{glyph, color}
 	}
 }
 
