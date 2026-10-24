@@ -5,6 +5,23 @@ type Armour struct {
 	Defence int
 }
 
+type Helmet struct {
+	Armour
+}
+
+type Chest struct {
+	Armour
+}
+
+type Belt struct {
+	Armour
+}
+
+// Shield, Another weapon, etc
+type OffHand struct {
+	Armour
+}
+
 type armourStats struct {
 	Defence int
 }

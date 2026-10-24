@@ -435,34 +435,37 @@ func drawGearOverlay(grid [][]tile, hero player, drop gearDrop) {
 }
 
 func drawEquipmentPanel(grid [][]tile, hero player) {
-	if len(grid) < 14 || len(grid[0]) < 38 {
+	if len(grid) < 19 || len(grid[0]) < 56 {
 		return
 	}
-	panelWidth := min(48, len(grid[0])-2)
+	panelWidth := min(70, len(grid[0])-2)
 	left := (len(grid[0]) - panelWidth) / 2
-	top := (len(grid) - 13) / 2
+	top := (len(grid) - 18) / 2
 	borderColor := "\x1b[38;2;120;126;138m"
 	drawWeaponPanelBorder(grid, top, left, panelWidth, borderColor)
 	line := func(offset int, segments ...hudSegment) {
 		drawPanelLine(grid, top+offset, left, panelWidth, borderColor, segments)
 	}
-	line(1, hudSegment{text: " EQUIPPED GEAR — PAUSED", color: "\x1b[38;2;230;221;190m"})
+	line(1, hudSegment{text: " EQUIPPED ITEMS — PAUSED", color: "\x1b[38;2;230;221;190m"})
 	weaponColor := weaponTierColor(hero.weapon.Tier)
 	armourColor := weaponTierColor(hero.armour.Tier)
-	weaponLeft, armourLeft := left+5, left+panelWidth/2+2
-	drawEquipmentArt(grid, weaponLeft+4, top+2, false, weaponColor)
-	drawEquipmentArt(grid, armourLeft+4, top+2, true, armourColor)
-	line(6,
-		hudSegment{text: fmt.Sprintf("  WEAPON: %-18s", equippedWeaponName(hero.weapon)), color: weaponColor},
-		hudSegment{text: fmt.Sprintf(" ARMOUR: %s", equippedArmourName(hero.armour)), color: armourColor},
-	)
+	weaponLeft, armourLeft := left+12, left+panelWidth/2+7
+	drawEquipmentArt(grid, weaponLeft+5, top+2, false, weaponColor)
+	drawEquipmentArt(grid, armourLeft+5, top+2, true, armourColor)
 	line(7,
-		hudSegment{text: fmt.Sprintf("  %s  DMG %d", weaponTierName(hero.weapon.Tier), hero.weapon.Damage), color: weaponColor},
-		hudSegment{text: fmt.Sprintf(" %s  DEF %d", weaponTierName(hero.armour.Tier), hero.Armour), color: armourColor},
+		hudSegment{text: fmt.Sprintf("  WEAPON: %-20s", equippedWeaponName(hero.weapon)), color: weaponColor},
+		hudSegment{text: "   CHEST: " + equippedArmourName(hero.armour), color: armourColor},
 	)
-	line(8, hudSegment{text: fmt.Sprintf("  TOTAL DAMAGE %d", effectiveDamage(hero)), color: "\x1b[38;2;232;193;104m"})
-	line(10, hudSegment{text: " Press I to close and resume", color: "\x1b[38;2;184;204;221m"})
-	drawWeaponPanelBorder(grid, top+12, left, panelWidth, borderColor)
+	line(8,
+		hudSegment{text: fmt.Sprintf("  %s  DMG %d", weaponTierName(hero.weapon.Tier), hero.weapon.Damage), color: weaponColor},
+		hudSegment{text: fmt.Sprintf("   %s  DEF %d", weaponTierName(hero.armour.Tier), hero.Armour), color: armourColor},
+	)
+	line(9, hudSegment{text: fmt.Sprintf("  TOTAL DAMAGE %d", effectiveDamage(hero)), color: "\x1b[38;2;232;193;104m"}, hudSegment{text: fmt.Sprintf("   TOTAL DEFENCE %d", hero.Armour), color: "\x1b[38;2;222;222;210m"})
+	line(11, hudSegment{text: " DEFENCE SLOTS", color: "\x1b[38;2;230;221;190m"})
+	line(12, hudSegment{text: "  [H] HELMET     Not equipped", color: "\x1b[38;2;184;204;221m"}, hudSegment{text: "  [C] CHEST      " + equippedArmourName(hero.armour), color: armourColor})
+	line(13, hudSegment{text: "  [B] BELT       Not equipped", color: "\x1b[38;2;184;204;221m"}, hudSegment{text: "  [O] OFF-HAND   Not equipped", color: "\x1b[38;2;184;204;221m"})
+	line(16, hudSegment{text: " Press I to close and resume", color: "\x1b[38;2;184;204;221m"})
+	drawWeaponPanelBorder(grid, top+17, left, panelWidth, borderColor)
 }
 
 func drawEquipmentArt(grid [][]tile, x, y int, armour bool, color string) {
