@@ -57,6 +57,7 @@ type enemy struct {
 type player struct {
 	models.Player
 	weapon   items.Weapon
+	armour   items.Armour
 	x, y     int
 	facing   byte
 	lastMove time.Time
@@ -68,9 +69,11 @@ type healthPickup struct {
 	y int
 }
 
-type weaponDrop struct {
-	weapon items.Weapon
-	x, y   int
+type gearDrop struct {
+	weapon   items.Weapon
+	armour   items.Armour
+	isArmour bool
+	x, y     int
 }
 
 type keyEvent struct {
@@ -106,7 +109,7 @@ func Run() {
 	packID := 1
 	foes := spawnEnemyPack(width, height, packID)
 	pickups := make([]healthPickup, 0)
-	weaponDrops := make([]weaponDrop, 0)
+	gearDrops := make([]gearDrop, 0)
 	keys := make(chan keyEvent, 32)
 	heldKeys := make(map[rune]bool)
 	lastStep := time.Time{}
@@ -135,7 +138,14 @@ func Run() {
 			resolveBattle(&hero, &foes[i], now)
 			if wasAlive && foes[i].Health <= 0 && rand.IntN(100) < 30 {
 				dropX, dropY := weaponDropPosition(foes[i], hero, width, height)
-				weaponDrops = append(weaponDrops, weaponDrop{weapon: items.DropItem(), x: dropX, y: dropY})
+				drop := gearDrop{x: dropX, y: dropY}
+				if rand.IntN(2) == 0 {
+					drop.weapon = items.DropItem()
+				} else {
+					drop.armour = items.DropArmour()
+					drop.isArmour = true
+				}
+				gearDrops = append(gearDrops, drop)
 			}
 		}
 		alive := foes[:0]
@@ -153,7 +163,7 @@ func Run() {
 		// Switch the warrior's pose while idle.
 		idleTime := time.Since(hero.lastMove)
 		idleFrame := idleTime > 400*time.Millisecond && int(idleTime/(500*time.Millisecond))%2 == 1
-		fmt.Print(renderDungeon(hero, width, height, idleFrame, foes, pickups, weaponDrops))
+		fmt.Print(renderDungeon(hero, width, height, idleFrame, foes, pickups, gearDrops))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -165,7 +175,7 @@ func Run() {
 				continue
 			}
 			if event.key == ' ' && event.pressed {
-				weaponDrops = pickupWeaponDrop(&hero, weaponDrops)
+				gearDrops = pickupGearDrop(&hero, gearDrops)
 				continue
 			}
 			if event.tracked {
@@ -196,7 +206,7 @@ func Run() {
 	}
 }
 
-func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy, pickups []healthPickup, weaponDrops []weaponDrop) string {
+func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy, pickups []healthPickup, gearDrops []gearDrop) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -235,19 +245,19 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy,
 			grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
 		}
 	}
-	drawHUD(grid, hero, foes, weaponDrops)
+	drawHUD(grid, hero, foes, gearDrops)
 	for _, pickup := range pickups {
 		drawHealthPickup(grid, pickup, left, right, top, bottom)
 	}
 	for _, foe := range foes {
 		drawEnemy(grid, foe, left, right, top, bottom)
 	}
-	for _, drop := range weaponDrops {
-		drawWeaponDrop(grid, drop, left, right, top, bottom)
+	for _, drop := range gearDrops {
+		drawGearDrop(grid, drop, left, right, top, bottom)
 	}
 	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, hero.weapon, idleFrame)
-	if drop, ok := nearestWeaponDrop(hero, weaponDrops); ok && weaponDropInRange(hero, drop) {
-		drawWeaponOverlay(grid, hero, drop)
+	if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) {
+		drawGearOverlay(grid, hero, drop)
 	}
 
 	var frame bytes.Buffer
@@ -270,7 +280,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, foes []enemy,
 	return frame.String()
 }
 
-func drawHUD(grid [][]tile, hero player, foes []enemy, weaponDrops []weaponDrop) {
+func drawHUD(grid [][]tile, hero player, foes []enemy, gearDrops []gearDrop) {
 	segments := []hudSegment{
 		{fmt.Sprintf("HP %d/%d", hero.Health, hero.MaxHealth), "\x1b[38;2;232;103;103m"},
 		{"   ", ""},
@@ -278,6 +288,9 @@ func drawHUD(grid [][]tile, hero player, foes []enemy, weaponDrops []weaponDrop)
 		{"   ", ""},
 		{"WPN ", "\x1b[38;2;184;204;221m"},
 		{equippedWeaponName(hero.weapon), weaponTierColor(hero.weapon.Tier)},
+		{"   ARM ", "\x1b[38;2;184;204;221m"},
+		{equippedArmourName(hero.armour), weaponTierColor(hero.armour.Tier)},
+		{fmt.Sprintf(" DEF %d", hero.Armour), "\x1b[38;2;222;222;210m"},
 		{"   ", ""},
 		{fmt.Sprintf("XP %d", hero.Experience), "\x1b[38;2;232;193;104m"},
 		{"   ", ""},
@@ -290,11 +303,19 @@ func drawHUD(grid [][]tile, hero player, foes []enemy, weaponDrops []weaponDrop)
 		return
 	}
 	itemSegments := []hudSegment{{text: "DROP: none", color: "\x1b[38;2;184;204;221m"}}
-	if drop, ok := nearestWeaponDrop(hero, weaponDrops); ok && weaponDropInRange(hero, drop) {
-		itemSegments = []hudSegment{
-			{text: "DROP: ", color: "\x1b[38;2;184;204;221m"},
-			{text: drop.weapon.Name, color: weaponTierColor(drop.weapon.Tier)},
-			{text: fmt.Sprintf(" %s DMG %d  [SPACE nearby]", weaponTierName(drop.weapon.Tier), drop.weapon.Damage), color: "\x1b[38;2;184;204;221m"},
+	if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) {
+		if drop.isArmour {
+			itemSegments = []hudSegment{
+				{text: "DROP: ", color: "\x1b[38;2;184;204;221m"},
+				{text: drop.armour.Name, color: weaponTierColor(drop.armour.Tier)},
+				{text: fmt.Sprintf(" %s DEF %d  [SPACE nearby]", weaponTierName(drop.armour.Tier), drop.armour.Defence), color: "\x1b[38;2;184;204;221m"},
+			}
+		} else {
+			itemSegments = []hudSegment{
+				{text: "DROP: ", color: "\x1b[38;2;184;204;221m"},
+				{text: drop.weapon.Name, color: weaponTierColor(drop.weapon.Tier)},
+				{text: fmt.Sprintf(" %s DMG %d  [SPACE nearby]", weaponTierName(drop.weapon.Tier), drop.weapon.Damage), color: "\x1b[38;2;184;204;221m"},
+			}
 		}
 	}
 	drawHUDLine(grid, 1, itemSegments)
@@ -313,7 +334,7 @@ func drawHUDLine(grid [][]tile, row int, segments []hudSegment) {
 	}
 }
 
-func drawWeaponOverlay(grid [][]tile, hero player, drop weaponDrop) {
+func drawGearOverlay(grid [][]tile, hero player, drop gearDrop) {
 	if len(grid) < 15 || len(grid[0]) < 14 {
 		return
 	}
@@ -327,6 +348,19 @@ func drawWeaponOverlay(grid [][]tile, hero player, drop weaponDrop) {
 	drawWeaponPanelBorder(grid, top, left, panelWidth, borderColor)
 	line := func(row int, segments ...hudSegment) {
 		drawPanelLine(grid, row, left, panelWidth, borderColor, segments)
+	}
+	if drop.isArmour {
+		line(top+1, hudSegment{text: " ARMOUR COMPARISON", color: "\x1b[38;2;230;221;190m"})
+		line(top+2, hudSegment{text: " Found: ", color: "\x1b[38;2;184;204;221m"}, hudSegment{text: drop.armour.Name, color: weaponTierColor(drop.armour.Tier)})
+		line(top+3, hudSegment{text: " Rarity: " + weaponTierName(drop.armour.Tier), color: weaponTierColor(drop.armour.Tier)})
+		line(top+4, hudSegment{text: fmt.Sprintf(" Defence: %d", drop.armour.Defence), color: "\x1b[38;2;222;222;210m"})
+		line(top+5, hudSegment{text: " Equipped: " + equippedArmourName(hero.armour), color: weaponTierColor(hero.armour.Tier)})
+		line(top+6, hudSegment{text: " Rarity: " + weaponTierName(hero.armour.Tier), color: weaponTierColor(hero.armour.Tier)})
+		line(top+7, hudSegment{text: fmt.Sprintf(" Defence: %d", hero.Armour), color: "\x1b[38;2;222;222;210m"})
+		line(top+8, hudSegment{text: fmt.Sprintf(" Defence change: %+d", drop.armour.Defence-hero.Armour), color: "\x1b[38;2;232;193;104m"})
+		line(top+9, hudSegment{text: " Press SPACE to equip", color: "\x1b[38;2;184;204;221m"})
+		drawWeaponPanelBorder(grid, top+10, left, panelWidth, borderColor)
+		return
 	}
 	line(top+1, hudSegment{text: " WEAPON COMPARISON", color: "\x1b[38;2;230;221;190m"})
 	line(top+2, hudSegment{text: " Found: ", color: "\x1b[38;2;184;204;221m"}, hudSegment{text: drop.weapon.Name, color: weaponTierColor(drop.weapon.Tier)})
@@ -440,19 +474,33 @@ func weaponDropPosition(foe enemy, hero player, width, height int) (int, int) {
 	return best[0], best[1]
 }
 
-func pickupWeaponDrop(hero *player, drops []weaponDrop) []weaponDrop {
+func pickupGearDrop(hero *player, drops []gearDrop) []gearDrop {
+	nearestIndex, nearestDistance := -1, int(^uint(0)>>1)
 	for i, drop := range drops {
-		if weaponDropInRange(*hero, drop) {
-			hero.weapon = drop.weapon
-			return append(drops[:i], drops[i+1:]...)
+		if !gearDropInRange(*hero, drop) {
+			continue
+		}
+		distance := abs(hero.x-drop.x) + abs(hero.y-drop.y)
+		if distance < nearestDistance {
+			nearestIndex, nearestDistance = i, distance
 		}
 	}
-	return drops
+	if nearestIndex < 0 {
+		return drops
+	}
+	drop := drops[nearestIndex]
+	if drop.isArmour {
+		hero.armour = drop.armour
+		hero.Armour = drop.armour.Defence
+	} else {
+		hero.weapon = drop.weapon
+	}
+	return append(drops[:nearestIndex], drops[nearestIndex+1:]...)
 }
 
-func nearestWeaponDrop(hero player, drops []weaponDrop) (weaponDrop, bool) {
+func nearestGearDrop(hero player, drops []gearDrop) (gearDrop, bool) {
 	if len(drops) == 0 {
-		return weaponDrop{}, false
+		return gearDrop{}, false
 	}
 	nearest := drops[0]
 	nearestDistance := abs(hero.x-nearest.x) + abs(hero.y-nearest.y)
@@ -465,7 +513,7 @@ func nearestWeaponDrop(hero player, drops []weaponDrop) (weaponDrop, bool) {
 	return nearest, true
 }
 
-func weaponDropInRange(hero player, drop weaponDrop) bool {
+func gearDropInRange(hero player, drop gearDrop) bool {
 	return abs(hero.x-drop.x) <= weaponPickupHorizontalRange && abs(hero.y-drop.y) <= weaponPickupVerticalRange
 }
 
@@ -474,6 +522,13 @@ func equippedWeaponName(weapon items.Weapon) string {
 		return "None"
 	}
 	return weapon.Name
+}
+
+func equippedArmourName(armour items.Armour) string {
+	if armour.Name == "" {
+		return "None"
+	}
+	return armour.Name
 }
 
 func effectiveDamage(hero player) int {
@@ -506,11 +561,15 @@ func weaponTierColor(tier items.ItemTier) string {
 	}
 }
 
-func drawWeaponDrop(grid [][]tile, drop weaponDrop, left, right, top, bottom int) {
+func drawGearDrop(grid [][]tile, drop gearDrop, left, right, top, bottom int) {
 	if drop.x <= left || drop.x >= right || drop.y <= top || drop.y >= bottom {
 		return
 	}
-	grid[drop.y][drop.x] = tile{'w', weaponTierColor(drop.weapon.Tier)}
+	glyph, tier := 'w', drop.weapon.Tier
+	if drop.isArmour {
+		glyph, tier = 'a', drop.armour.Tier
+	}
+	grid[drop.y][drop.x] = tile{glyph, weaponTierColor(tier)}
 }
 
 func drawHealthPickup(grid [][]tile, pickup healthPickup, left, right, top, bottom int) {

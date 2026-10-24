@@ -20,11 +20,6 @@ type Weapon struct {
 	Damage int
 }
 
-type Armour struct {
-	Item
-	Defence int
-}
-
 type weaponStats struct {
 	MinDamage int
 	MaxDamage int

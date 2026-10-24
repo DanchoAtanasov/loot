@@ -75,6 +75,15 @@ func DropItem() Weapon {
 
 }
 
+func DropArmour() Armour {
+	pool := []Armour{LeatherVest, Chainmail}
+	armour := pool[rand.IntN(len(pool))]
+	if stats, exists := ArmourStats[armour]; exists {
+		armour.Defence = stats.Defence
+	}
+	return armour
+}
+
 var Distributions = map[ItemTier]int{
 	UniqueTier: 2,
 	RareTier:   8,
