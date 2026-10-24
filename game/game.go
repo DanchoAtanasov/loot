@@ -24,6 +24,7 @@ const (
 	windowSizeIOCTL             = 0x40087468 // TIOCGWINSZ on macOS
 	weaponPickupHorizontalRange = 4
 	weaponPickupVerticalRange   = 2
+	enemyDeathEffectDuration    = 600 * time.Millisecond
 )
 
 type terminalSize struct {
@@ -70,6 +71,12 @@ type healthPickup struct {
 	y int
 }
 
+type enemyDeathEffect struct {
+	x, y      int
+	tank      bool
+	startedAt time.Time
+}
+
 type gearDrop struct {
 	weapon   items.Weapon
 	armour   items.Armour
@@ -109,6 +116,7 @@ func Run() {
 	}
 	packID := 1
 	foes := spawnEnemyPack(width, height, packID)
+	deathEffects := make([]enemyDeathEffect, 0)
 	pickups := make([]healthPickup, 0)
 	gearDrops := make([]gearDrop, 0)
 	keys := make(chan keyEvent, 32)
@@ -151,7 +159,17 @@ func Run() {
 				}
 				gearDrops = append(gearDrops, drop)
 			}
+			if wasAlive && foes[i].Health <= 0 {
+				deathEffects = append(deathEffects, enemyDeathEffect{x: foes[i].x, y: foes[i].y, tank: foes[i].tank, startedAt: now})
+			}
 		}
+		activeEffects := deathEffects[:0]
+		for _, effect := range deathEffects {
+			if now.Sub(effect.startedAt) < enemyDeathEffectDuration {
+				activeEffects = append(activeEffects, effect)
+			}
+		}
+		deathEffects = activeEffects
 		alive := foes[:0]
 		for _, foe := range foes {
 			if foe.Health > 0 {
@@ -171,7 +189,7 @@ func Run() {
 		if !hero.attackStarted.IsZero() && time.Since(hero.attackStarted) < 240*time.Millisecond {
 			swingFrame = int(time.Since(hero.attackStarted) / (80 * time.Millisecond))
 		}
-		fmt.Print(renderDungeon(hero, width, height, idleFrame, swingFrame, foes, pickups, gearDrops))
+		fmt.Print(renderDungeon(hero, width, height, idleFrame, swingFrame, foes, pickups, gearDrops, deathEffects))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -191,12 +209,12 @@ func Run() {
 				continue
 			}
 			if hero.Health > 0 && event.pressed {
-				hero.x, hero.y, hero.facing = movePlayer(byte(event.key), hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height)
+				hero.x, hero.y, hero.facing = movePlayer(byte(event.key), hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height, foes, deathEffects)
 				hero.lastMove = time.Now()
 			}
 		case now := <-ticker.C:
 			if hero.Health > 0 && now.Sub(lastStep) >= 120*time.Millisecond {
-				nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height)
+				nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height, foes, deathEffects)
 				if nextX != hero.x || nextY != hero.y {
 					hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
 					hero.lastMove = now
@@ -214,7 +232,7 @@ func Run() {
 	}
 }
 
-func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop) string {
+func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -260,6 +278,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	for _, foe := range foes {
 		drawEnemy(grid, foe, left, right, top, bottom)
 	}
+	drawEnemyDeathEffects(grid, deathEffects, left, right, top, bottom, time.Now())
 	for _, drop := range gearDrops {
 		drawGearDrop(grid, drop, left, right, top, bottom)
 	}
@@ -770,6 +789,35 @@ func drawEnemy(grid [][]tile, foe enemy, left, right, top, bottom int) {
 	}
 }
 
+func drawEnemyDeathEffects(grid [][]tile, effects []enemyDeathEffect, left, right, top, bottom int, now time.Time) {
+	for _, effect := range effects {
+		phase := int(now.Sub(effect.startedAt) / (enemyDeathEffectDuration / 3))
+		glyph, color := rune('X'), "\x1b[38;2;255;173;92m"
+		positions := [][2]int{{effect.x, effect.y}}
+		if effect.tank {
+			positions = [][2]int{{effect.x, effect.y}, {effect.x + 1, effect.y}, {effect.x, effect.y + 1}, {effect.x + 1, effect.y + 1}}
+		}
+		switch phase {
+		case 1:
+			glyph, color = '*', "\x1b[38;2;255;220;130m"
+			centerX, centerY := effect.x, effect.y
+			if effect.tank {
+				centerX++
+				centerY++
+			}
+			positions = [][2]int{{centerX, centerY}, {centerX - 1, centerY}, {centerX + 1, centerY}, {centerX, centerY - 1}, {centerX, centerY + 1}}
+		case 2:
+			glyph, color = '.', "\x1b[38;2;170;153;129m"
+		}
+		for _, position := range positions {
+			x, y := position[0], position[1]
+			if x > left && x < right && y > top && y < bottom {
+				grid[y][x] = tile{glyph, color}
+			}
+		}
+	}
+}
+
 func levelUp(hero *player) {
 	for hero.Level < len(models.LevelThreshold) && hero.Experience >= models.LevelThreshold[hero.Level] {
 		hero.Level++
@@ -782,7 +830,7 @@ func resolveBattle(hero *player, foe *enemy, now time.Time) bool {
 	if hero.Health <= 0 || foe.Health <= 0 || now.Sub(hero.lastHit) < 500*time.Millisecond {
 		return false
 	}
-	if !enemyTouchesPlayer(*foe, hero.x, hero.y) {
+	if !heroCanHitEnemy(*foe, hero.x, hero.y) {
 		return false
 	}
 
@@ -805,6 +853,15 @@ func enemyTouchesPlayer(foe enemy, playerX, playerY int) bool {
 		maxY++
 	}
 	return playerX >= foe.x-2 && playerX <= maxX+2 && playerY >= foe.y-1 && playerY <= maxY+1
+}
+
+func heroCanHitEnemy(foe enemy, playerX, playerY int) bool {
+	maxX, maxY := foe.x, foe.y
+	if foe.tank {
+		maxX++
+		maxY++
+	}
+	return playerX >= foe.x-3 && playerX <= maxX+3 && playerY >= foe.y-2 && playerY <= maxY+2
 }
 
 func abs(value int) int {
@@ -986,28 +1043,29 @@ func keepPlayerInChamber(x, y, width, height int) (int, int) {
 	return min(max(x, left+2), right-2), min(max(y, top+1), bottom-1)
 }
 
-func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height int) (int, int, byte) {
+func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height int, foes []enemy, effects []enemyDeathEffect) (int, int, byte) {
 	step := max(movementSpeed, 1)
 	horizontalStep := horizontalMovementScale() * step
+	targetX, targetY := x, y
 	switch key {
 	case 'w', 'W':
-		y -= step
+		targetY -= step
 		facing = 'w'
 	case 's', 'S':
-		y += step
+		targetY += step
 		facing = 's'
 	case 'a', 'A':
-		x -= horizontalStep
+		targetX -= horizontalStep
 		facing = 'a'
 	case 'd', 'D':
-		x += horizontalStep
+		targetX += horizontalStep
 		facing = 'd'
 	}
-	x, y = keepPlayerInChamber(x, y, width, height)
+	x, y = movePlayerAlongPath(x, y, targetX, targetY, width, height, foes, effects)
 	return x, y, facing
 }
 
-func movePlayerHeld(held map[rune]bool, x, y int, facing byte, movementSpeed, width, height int) (int, int, byte) {
+func movePlayerHeld(held map[rune]bool, x, y int, facing byte, movementSpeed, width, height int, foes []enemy, effects []enemyDeathEffect) (int, int, byte) {
 	dx, dy := 0, 0
 	if held['a'] != held['d'] {
 		if held['a'] {
@@ -1046,10 +1104,86 @@ func movePlayerHeld(held map[rune]bool, x, y int, facing byte, movementSpeed, wi
 		facing = 's'
 	}
 	step := max(movementSpeed, 1)
-	x += dx * horizontalMovementScale() * step
-	y += dy * step
-	x, y = keepPlayerInChamber(x, y, width, height)
+	targetX := x + dx*horizontalMovementScale()*step
+	targetY := y + dy*step
+	x, y = movePlayerAlongPath(x, y, targetX, targetY, width, height, foes, effects)
 	return x, y, facing
+}
+
+func movePlayerAlongPath(x, y, targetX, targetY, width, height int, foes []enemy, effects []enemyDeathEffect) (int, int) {
+	targetX, targetY = keepPlayerInChamber(targetX, targetY, width, height)
+	deltaX, deltaY := abs(targetX-x), abs(targetY-y)
+	stepX, stepY := 1, 1
+	if x > targetX {
+		stepX = -1
+	}
+	if y > targetY {
+		stepY = -1
+	}
+	error := deltaX - deltaY
+	for x != targetX || y != targetY {
+		previousX, previousY := x, y
+		doubleError := 2 * error
+		if doubleError > -deltaY {
+			error -= deltaY
+			x += stepX
+		}
+		if doubleError < deltaX {
+			error += deltaX
+			y += stepY
+		}
+		if playerBlockedByEnemy(x, y, previousX, previousY, foes, effects) {
+			return previousX, previousY
+		}
+	}
+	return x, y
+}
+
+func playerBlockedByEnemy(x, y, previousX, previousY int, foes []enemy, effects []enemyDeathEffect) bool {
+	for _, foe := range foes {
+		if foe.Health <= 0 || !enemyTouchesPlayer(foe, x, y) {
+			continue
+		}
+		if !enemyTouchesPlayer(foe, previousX, previousY) || enemyCenterDistance(foe, x, y) <= enemyCenterDistance(foe, previousX, previousY) {
+			return true
+		}
+	}
+	for _, effect := range effects {
+		if !deathEffectTouchesPlayer(effect, x, y) {
+			continue
+		}
+		if !deathEffectTouchesPlayer(effect, previousX, previousY) || deathEffectCenterDistance(effect, x, y) <= deathEffectCenterDistance(effect, previousX, previousY) {
+			return true
+		}
+	}
+	return false
+}
+
+func enemyCenterDistance(foe enemy, x, y int) int {
+	centerX, centerY := foe.x, foe.y
+	if foe.tank {
+		centerX++
+		centerY++
+	}
+	return abs(x-centerX) + abs(y-centerY)
+}
+
+func deathEffectTouchesPlayer(effect enemyDeathEffect, x, y int) bool {
+	maxX, maxY := effect.x, effect.y
+	if effect.tank {
+		maxX++
+		maxY++
+	}
+	return x >= effect.x-2 && x <= maxX+2 && y >= effect.y-1 && y <= maxY+1
+}
+
+func deathEffectCenterDistance(effect enemyDeathEffect, x, y int) int {
+	centerX, centerY := effect.x, effect.y
+	if effect.tank {
+		centerX++
+		centerY++
+	}
+	return abs(x-centerX) + abs(y-centerY)
 }
 
 func horizontalMovementScale() int {
