@@ -451,8 +451,8 @@ func drawEquipmentPanel(grid [][]tile, hero player) {
 	armourColor := weaponTierColor(hero.armour.Tier)
 	centerSlot := left + (panelWidth-20)/2
 	drawEquipmentSlot(grid, centerSlot, top+2, 20, "HELMET", "Not equipped", "", "\x1b[38;2;184;204;221m", []string{"^^", "||"})
-	drawEquipmentSlot(grid, left+2, top+6, 20, "WEAPON", equippedWeaponName(hero.weapon), fmt.Sprintf("%s  DMG %d", weaponTierName(hero.weapon.Tier), hero.weapon.Damage), weaponColor, []string{" /", "/|"})
-	drawEquipmentSlot(grid, centerSlot, top+6, 20, "CHEST", equippedArmourName(hero.armour), fmt.Sprintf("%s  DEF %d", weaponTierName(hero.armour.Tier), hero.Armour), armourColor, []string{"[#", "##"})
+	drawEquipmentSlot(grid, left+2, top+6, 20, "WEAPON", equippedWeaponName(hero.weapon), fmt.Sprintf("DMG %d", hero.weapon.Damage), weaponColor, []string{" /", "/|"})
+	drawEquipmentSlot(grid, centerSlot, top+6, 20, "CHEST", equippedArmourName(hero.armour), fmt.Sprintf("DEF %d", hero.Armour), armourColor, []string{"[#", "##"})
 	drawEquipmentSlot(grid, left+panelWidth-22, top+6, 20, "OFF-HAND", "Not equipped", "", "\x1b[38;2;184;204;221m", []string{"[ ]", "|#|"})
 	drawEquipmentSlot(grid, centerSlot, top+10, 20, "BELT", "Not equipped", "", "\x1b[38;2;184;204;221m", []string{"===", "|||"})
 	line(15, hudSegment{text: fmt.Sprintf(" TOTAL DAMAGE %d", effectiveDamage(hero)), color: "\x1b[38;2;232;193;104m"}, hudSegment{text: fmt.Sprintf("     TOTAL DEFENCE %d", hero.Armour), color: "\x1b[38;2;222;222;210m"})
