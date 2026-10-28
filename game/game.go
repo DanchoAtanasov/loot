@@ -28,9 +28,12 @@ const (
 	framesPerSecond              = 60
 	heroImageCols                = 26
 	heroImageRows                = 7
+	healthImageCols              = 12
+	healthImageRows              = 4
 	enemySmallImageID            = 11
 	enemyMediumImageID           = 12
 	enemyTankImageID             = 13
+	healthImageID                = 14
 	enemyAggroHorizontalRange    = 16
 	enemyAggroVerticalRange      = 7
 	heroAttackAOEHorizontalRange = 8
@@ -147,6 +150,12 @@ func Run() {
 		}
 		fmt.Print(kittyTransmitHero(enemyImage, enemySmallImageID+imageID))
 	}
+	healthImage, err := loadKittyHero("assets/health.jpeg")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not load health image: %v\n", err)
+		return
+	}
+	fmt.Print(kittyTransmitHero(healthImage, healthImageID))
 
 	width, height := readTerminalSize()
 	playerX, playerY := chamberCenter(width, height)
@@ -343,9 +352,6 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 		}
 	}
 	drawHUD(grid, hero, foes, gearDrops)
-	for _, pickup := range pickups {
-		drawHealthPickup(grid, pickup, left, right, top, bottom)
-	}
 	drawEnemyDeathEffects(grid, deathEffects, left, right, top, bottom, time.Now())
 	for _, drop := range gearDrops {
 		drawGearDrop(grid, drop, left, right, top, bottom)
@@ -369,6 +375,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	for imageID := enemySmallImageID; imageID <= enemyTankImageID; imageID++ {
 		fmt.Fprintf(&frame, "\x1b_Ga=d,d=i,i=%d,q=2\x1b\\", imageID)
 	}
+	fmt.Fprintf(&frame, "\x1b_Ga=d,d=i,i=%d,q=2\x1b\\", healthImageID)
 	frame.WriteString("\x1b[H")
 	for y, row := range grid {
 		lastColor := ""
@@ -386,6 +393,11 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	}
 	frame.WriteString("\x1b[0m\x1b[K\x1b[?2026l")
 	if !uiOverlayOpen {
+		for index, pickup := range pickups {
+			row := max(pickup.y-healthImageRows/2, 3)
+			col := max(pickup.x-healthImageCols/2, 1)
+			frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", row, col, healthImageID, index+1, healthImageCols, healthImageRows))
+		}
 		for index, foe := range foes {
 			if foe.Health <= 0 {
 				continue
@@ -876,12 +888,6 @@ func drawGearDrop(grid [][]tile, drop gearDrop, left, right, top, bottom int) {
 		glyph, tier = 'a', drop.armour.Tier
 	}
 	grid[drop.y][drop.x] = tile{glyph, weaponTierColor(tier)}
-}
-
-func drawHealthPickup(grid [][]tile, pickup healthPickup, left, right, top, bottom int) {
-	if pickup.x > left && pickup.x < right && pickup.y > top && pickup.y < bottom {
-		grid[pickup.y][pickup.x] = tile{'+', "\x1b[38;2;103;222;130m"}
-	}
 }
 
 func spawnEnemyPack(width, height int) []enemy {
