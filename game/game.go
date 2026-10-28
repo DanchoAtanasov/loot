@@ -4,7 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -103,6 +108,20 @@ func Run() {
 
 	fmt.Print("\x1b[?1049h\x1b[>10u\x1b[?25l\x1b[2J") // alternate screen, key events, hide cursor
 	defer fmt.Print("\x1b[?2026l\x1b[0m\x1b[?25h\x1b[<u\x1b[?1049l")
+	for imageID, path := range []string{
+		"assets/hero.jpeg",
+		"assets/hero_prep.jpeg",
+		"assets/hero_slash.jpeg",
+		"assets/hero_followthrough.jpeg",
+		"assets/hero_pullback.jpeg",
+	} {
+		heroImage, err := loadKittyHero(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "could not load hero image %q: %v\n", path, err)
+			return
+		}
+		fmt.Print(kittyTransmitHero(heroImage, imageID+1))
+	}
 
 	width, height := readTerminalSize()
 	playerX, playerY := chamberCenter(width, height)
@@ -191,7 +210,7 @@ func Run() {
 		idleFrame := idleTime > 400*time.Millisecond && int(idleTime/(500*time.Millisecond))%2 == 1
 		swingFrame := -1
 		if !hero.attackStarted.IsZero() && time.Since(hero.attackStarted) < 240*time.Millisecond {
-			swingFrame = int(time.Since(hero.attackStarted) / (80 * time.Millisecond))
+			swingFrame = int(time.Since(hero.attackStarted) / (60 * time.Millisecond))
 		}
 		fmt.Print(renderDungeon(hero, width, height, idleFrame, swingFrame, foes, pickups, gearDrops, deathEffects, showEquipment))
 
@@ -306,7 +325,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	for _, drop := range gearDrops {
 		drawGearDrop(grid, drop, left, right, top, bottom)
 	}
-	drawWarrior(grid, hero.x, hero.y, left, right, top, bottom, hero.facing, hero.weapon, idleFrame, swingFrame)
+	// The player is rendered as a Kitty graphics placement after the text frame.
 	if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) {
 		drawGearOverlay(grid, hero, drop)
 	}
@@ -315,7 +334,11 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	}
 
 	var frame bytes.Buffer
-	frame.WriteString("\x1b[?2026h\x1b[H")
+	frame.WriteString("\x1b[?2026h")
+	for imageID := 1; imageID <= 5; imageID++ {
+		fmt.Fprintf(&frame, "\x1b_Ga=d,d=i,i=%d,p=1,q=2\x1b\\", imageID)
+	}
+	frame.WriteString("\x1b[H")
 	for y, row := range grid {
 		lastColor := ""
 		for _, cell := range row {
@@ -331,7 +354,78 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 		}
 	}
 	frame.WriteString("\x1b[0m\x1b[K\x1b[?2026l")
+	// Overlay the pixel art after the text frame so the terminal image is not
+	// overwritten by subsequent character drawing.
+	imageID := 1
+	if swingFrame >= 0 {
+		imageID = 2 + swingFrame
+	}
+	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=12,r=6,q=2\x1b\\", max(hero.y-3, 1), max(hero.x-6, 1), imageID))
 	return frame.String()
+}
+
+func loadKittyHero(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	source, err := jpeg.Decode(file)
+	if err != nil {
+		return nil, err
+	}
+	// The supplied JPEG uses a flat charcoal background. Make the connected
+	// background pixels transparent, preserving the dark outlines in the art.
+	bounds := source.Bounds()
+	img := image.NewNRGBA(bounds)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			img.Set(x, y, source.At(x, y))
+		}
+	}
+	background := color.NRGBAModel.Convert(source.At(bounds.Min.X, bounds.Min.Y)).(color.NRGBA)
+	visited := make([]bool, bounds.Dx()*bounds.Dy())
+	queue := []image.Point{{X: bounds.Min.X, Y: bounds.Min.Y}}
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+		index := (p.Y-bounds.Min.Y)*bounds.Dx() + p.X - bounds.Min.X
+		if visited[index] {
+			continue
+		}
+		visited[index] = true
+		c := color.NRGBAModel.Convert(source.At(p.X, p.Y)).(color.NRGBA)
+		if abs(int(c.R)-int(background.R))+abs(int(c.G)-int(background.G))+abs(int(c.B)-int(background.B)) > 24 {
+			continue
+		}
+		img.SetNRGBA(p.X, p.Y, color.NRGBA{})
+		for _, next := range []image.Point{{p.X - 1, p.Y}, {p.X + 1, p.Y}, {p.X, p.Y - 1}, {p.X, p.Y + 1}} {
+			if next.In(bounds) {
+				queue = append(queue, next)
+			}
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, img); err != nil {
+		return nil, err
+	}
+	return encoded.Bytes(), nil
+}
+
+func kittyTransmitHero(pngData []byte, imageID int) string {
+	encoded := base64.StdEncoding.EncodeToString(pngData)
+	var out strings.Builder
+	for len(encoded) > 0 {
+		chunkSize := min(len(encoded), 4096)
+		chunk := encoded[:chunkSize]
+		encoded = encoded[chunkSize:]
+		more := 0
+		if len(encoded) > 0 {
+			more = 1
+		}
+		fmt.Fprintf(&out, "\x1b_Ga=t,f=100,i=%d,q=2,m=%d;%s\x1b\\", imageID, more, chunk)
+	}
+	return out.String()
 }
 
 func drawHUD(grid [][]tile, hero player, foes []enemy, gearDrops []gearDrop) {
