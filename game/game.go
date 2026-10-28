@@ -28,6 +28,9 @@ const (
 	framesPerSecond             = 60
 	heroImageCols               = 26
 	heroImageRows               = 7
+	enemySmallImageID           = 11
+	enemyMediumImageID          = 12
+	enemyTankImageID            = 13
 	windowSizeIOCTL             = 0x40087468 // TIOCGWINSZ on macOS
 	weaponPickupHorizontalRange = 4
 	weaponPickupVerticalRange   = 2
@@ -130,6 +133,18 @@ func Run() {
 			return
 		}
 		fmt.Print(kittyTransmitHero(mirroredHero, imageID+6))
+	}
+	for imageID, path := range []string{
+		"assets/enemy_small.jpeg",
+		"assets/enemy_medium.jpeg",
+		"assets/enemy_tank.jpeg",
+	} {
+		enemyImage, err := loadKittyHero(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "could not load enemy image %q: %v\n", path, err)
+			return
+		}
+		fmt.Print(kittyTransmitHero(enemyImage, enemySmallImageID+imageID))
 	}
 
 	width, height := readTerminalSize()
@@ -331,9 +346,6 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	for _, pickup := range pickups {
 		drawHealthPickup(grid, pickup, left, right, top, bottom)
 	}
-	for _, foe := range foes {
-		drawEnemy(grid, foe, left, right, top, bottom)
-	}
 	drawEnemyDeathEffects(grid, deathEffects, left, right, top, bottom, time.Now())
 	for _, drop := range gearDrops {
 		drawGearDrop(grid, drop, left, right, top, bottom)
@@ -352,6 +364,9 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	for imageID := 1; imageID <= 10; imageID++ {
 		fmt.Fprintf(&frame, "\x1b_Ga=d,d=i,i=%d,p=1,q=2\x1b\\", imageID)
 	}
+	for imageID := enemySmallImageID; imageID <= enemyTankImageID; imageID++ {
+		fmt.Fprintf(&frame, "\x1b_Ga=d,d=i,i=%d,q=2\x1b\\", imageID)
+	}
 	frame.WriteString("\x1b[H")
 	for y, row := range grid {
 		lastColor := ""
@@ -368,6 +383,18 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 		}
 	}
 	frame.WriteString("\x1b[0m\x1b[K\x1b[?2026l")
+	for index, foe := range foes {
+		if foe.Health <= 0 {
+			continue
+		}
+		imageID, cols, rows := enemySpriteSize(foe)
+		x, y := foe.x, foe.y
+		if foe.tank {
+			x++
+			y++
+		}
+		frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", max(y-rows/2, 1), max(x-cols/2, 1), imageID, index+1, cols, rows))
+	}
 	// Overlay the pixel art after the text frame so the terminal image is not
 	// overwritten by subsequent character drawing.
 	imageID := 1
@@ -379,6 +406,17 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	}
 	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(hero.y-heroImageRows/2, 1), max(hero.x-heroImageCols/2, 1), imageID, heroImageCols, heroImageRows))
 	return frame.String()
+}
+
+func enemySpriteSize(foe enemy) (imageID, cols, rows int) {
+	switch {
+	case foe.tank:
+		return enemyTankImageID, heroImageCols, heroImageRows
+	case foe.brute:
+		return enemyMediumImageID, 18, 5
+	default:
+		return enemySmallImageID, 12, 4
+	}
 }
 
 func drawLevelUpEffect(grid [][]tile, x, y int, startedAt, now time.Time, left, right, top, bottom int) {
