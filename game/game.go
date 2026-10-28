@@ -26,6 +26,8 @@ import (
 
 const (
 	framesPerSecond             = 60
+	heroImageCols               = 26
+	heroImageRows               = 7
 	windowSizeIOCTL             = 0x40087468 // TIOCGWINSZ on macOS
 	weaponPickupHorizontalRange = 4
 	weaponPickupVerticalRange   = 2
@@ -360,7 +362,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	if swingFrame >= 0 {
 		imageID = 2 + swingFrame
 	}
-	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=12,r=6,q=2\x1b\\", max(hero.y-3, 1), max(hero.x-6, 1), imageID))
+	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(hero.y-heroImageRows/2, 1), max(hero.x-heroImageCols/2, 1), imageID, heroImageCols, heroImageRows))
 	return frame.String()
 }
 
