@@ -124,6 +124,12 @@ func Run() {
 			return
 		}
 		fmt.Print(kittyTransmitHero(heroImage, imageID+1))
+		mirroredHero, err := flipKittyHero(heroImage)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "could not mirror hero image %q: %v\n", path, err)
+			return
+		}
+		fmt.Print(kittyTransmitHero(mirroredHero, imageID+6))
 	}
 
 	width, height := readTerminalSize()
@@ -343,7 +349,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 
 	var frame bytes.Buffer
 	frame.WriteString("\x1b[?2026h")
-	for imageID := 1; imageID <= 5; imageID++ {
+	for imageID := 1; imageID <= 10; imageID++ {
 		fmt.Fprintf(&frame, "\x1b_Ga=d,d=i,i=%d,p=1,q=2\x1b\\", imageID)
 	}
 	frame.WriteString("\x1b[H")
@@ -367,6 +373,9 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	imageID := 1
 	if swingFrame >= 0 {
 		imageID = 2 + swingFrame
+	}
+	if hero.facing == 'd' || hero.facing == 'e' || hero.facing == 'c' {
+		imageID += 5
 	}
 	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(hero.y-heroImageRows/2, 1), max(hero.x-heroImageCols/2, 1), imageID, heroImageCols, heroImageRows))
 	return frame.String()
@@ -444,6 +453,25 @@ func loadKittyHero(path string) ([]byte, error) {
 	}
 	var encoded bytes.Buffer
 	if err := png.Encode(&encoded, img); err != nil {
+		return nil, err
+	}
+	return encoded.Bytes(), nil
+}
+
+func flipKittyHero(pngData []byte) ([]byte, error) {
+	source, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		return nil, err
+	}
+	bounds := source.Bounds()
+	flipped := image.NewNRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+	for y := 0; y < bounds.Dy(); y++ {
+		for x := 0; x < bounds.Dx(); x++ {
+			flipped.Set(x, y, source.At(bounds.Max.X-1-x, bounds.Min.Y+y))
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, flipped); err != nil {
 		return nil, err
 	}
 	return encoded.Bytes(), nil
