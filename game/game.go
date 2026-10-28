@@ -34,8 +34,8 @@ const (
 	enemyMediumImageID           = 12
 	enemyTankImageID             = 13
 	healthImageID                = 14
-	enemyAggroHorizontalRange    = 16
-	enemyAggroVerticalRange      = 7
+	enemyAggroHorizontalRange    = 20
+	enemyAggroVerticalRange      = 9
 	heroAttackAOEHorizontalRange = 8
 	heroAttackAOEVerticalRange   = 4
 	windowSizeIOCTL              = 0x40087468 // TIOCGWINSZ on macOS
