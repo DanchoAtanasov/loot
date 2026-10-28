@@ -64,13 +64,14 @@ type enemy struct {
 
 type player struct {
 	models.Player
-	weapon        items.Weapon
-	armour        items.Armour
-	x, y          int
-	facing        byte
-	lastMove      time.Time
-	lastHit       time.Time
-	attackStarted time.Time
+	weapon         items.Weapon
+	armour         items.Armour
+	x, y           int
+	facing         byte
+	lastMove       time.Time
+	lastHit        time.Time
+	attackStarted  time.Time
+	levelUpStarted time.Time
 }
 
 type healthPickup struct {
@@ -204,7 +205,11 @@ func Run() {
 			pickups = collectHealthPickups(&hero, pickups)
 
 			// Check if character should level up
+			previousLevel := hero.Level
 			levelUp(&hero)
+			if hero.Level > previousLevel {
+				hero.levelUpStarted = now
+			}
 		}
 
 		// Switch the warrior's pose while idle.
@@ -327,6 +332,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	for _, drop := range gearDrops {
 		drawGearDrop(grid, drop, left, right, top, bottom)
 	}
+	drawLevelUpEffect(grid, hero.x, hero.y, hero.levelUpStarted, time.Now(), left, right, top, bottom)
 	// The player is rendered as a Kitty graphics placement after the text frame.
 	if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) {
 		drawGearOverlay(grid, hero, drop)
@@ -364,6 +370,35 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	}
 	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(hero.y-heroImageRows/2, 1), max(hero.x-heroImageCols/2, 1), imageID, heroImageCols, heroImageRows))
 	return frame.String()
+}
+
+func drawLevelUpEffect(grid [][]tile, x, y int, startedAt, now time.Time, left, right, top, bottom int) {
+	const duration = 1100 * time.Millisecond
+	if startedAt.IsZero() {
+		return
+	}
+	elapsed := now.Sub(startedAt)
+	if elapsed < 0 || elapsed >= duration {
+		return
+	}
+	progress := float64(elapsed) / float64(duration)
+	radiusX := 6 + int(math.Round(progress*4))
+	radiusY := 2 + int(math.Round(progress*2))
+	brightness := 1 - progress*0.55
+	color := fmt.Sprintf("\x1b[38;2;%d;%d;%dm",
+		int(255*brightness), int(224*brightness), int(126*brightness))
+	glyphs := []rune{'✦', '✧', '⋆', '+'}
+	phase := int(elapsed / (90 * time.Millisecond))
+	for i := 0; i < 16; i++ {
+		angle := 2*math.Pi*float64(i)/16 + progress*math.Pi/3
+		px := x + int(math.Round(math.Cos(angle)*float64(radiusX)))
+		py := y + int(math.Round(math.Sin(angle)*float64(radiusY)))
+		if px <= left || px >= right || py <= top || py >= bottom || py < 0 || py >= len(grid) || px < 0 || px >= len(grid[py]) {
+			continue
+		}
+		glyph := glyphs[(i+phase)%len(glyphs)]
+		grid[py][px] = tile{glyph: glyph, color: color}
+	}
 }
 
 func loadKittyHero(path string) ([]byte, error) {
