@@ -25,18 +25,20 @@ import (
 )
 
 const (
-	framesPerSecond             = 60
-	heroImageCols               = 26
-	heroImageRows               = 7
-	enemySmallImageID           = 11
-	enemyMediumImageID          = 12
-	enemyTankImageID            = 13
-	enemyAggroHorizontalRange   = 16
-	enemyAggroVerticalRange     = 7
-	windowSizeIOCTL             = 0x40087468 // TIOCGWINSZ on macOS
-	weaponPickupHorizontalRange = 4
-	weaponPickupVerticalRange   = 2
-	enemyDeathEffectDuration    = 600 * time.Millisecond
+	framesPerSecond              = 60
+	heroImageCols                = 26
+	heroImageRows                = 7
+	enemySmallImageID            = 11
+	enemyMediumImageID           = 12
+	enemyTankImageID             = 13
+	enemyAggroHorizontalRange    = 16
+	enemyAggroVerticalRange      = 7
+	heroAttackAOEHorizontalRange = 8
+	heroAttackAOEVerticalRange   = 4
+	windowSizeIOCTL              = 0x40087468 // TIOCGWINSZ on macOS
+	weaponPickupHorizontalRange  = 4
+	weaponPickupVerticalRange    = 2
+	enemyDeathEffectDuration     = 600 * time.Millisecond
 )
 
 type terminalSize struct {
@@ -187,13 +189,16 @@ func Run() {
 		if !paused {
 			for i := range foes {
 				foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, width, height, foes[i].tank)
-				wasAlive := foes[i].Health > 0
-				if resolveBattle(&hero, &foes[i], now) {
-					hero.facing = facingEnemy(hero, foes[i])
-					hero.attackStarted = now
-				}
-				if wasAlive && foes[i].Health <= 0 && rand.IntN(100) < 30 {
-					dropX, dropY := weaponDropPosition(foes[i], hero, width, height)
+			}
+			attackTarget, defeated := resolveBattle(&hero, foes, now)
+			if attackTarget >= 0 {
+				hero.facing = facingEnemy(hero, foes[attackTarget])
+				hero.attackStarted = now
+			}
+			for _, index := range defeated {
+				foe := foes[index]
+				if rand.IntN(100) < 30 {
+					dropX, dropY := weaponDropPosition(foe, hero, width, height)
 					drop := gearDrop{x: dropX, y: dropY}
 					if rand.IntN(2) == 0 {
 						drop.weapon = items.DropItem()
@@ -203,9 +208,7 @@ func Run() {
 					}
 					gearDrops = append(gearDrops, drop)
 				}
-				if wasAlive && foes[i].Health <= 0 {
-					deathEffects = append(deathEffects, enemyDeathEffect{x: foes[i].x, y: foes[i].y, tank: foes[i].tank, startedAt: now})
-				}
+				deathEffects = append(deathEffects, enemyDeathEffect{x: foe.x, y: foe.y, tank: foe.tank, startedAt: now})
 			}
 			activeEffects := deathEffects[:0]
 			for _, effect := range deathEffects {
@@ -349,8 +352,10 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	}
 	drawLevelUpEffect(grid, hero.x, hero.y, hero.levelUpStarted, time.Now(), left, right, top, bottom)
 	// The player is rendered as a Kitty graphics placement after the text frame.
+	uiOverlayOpen := showEquipment
 	if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) {
 		drawGearOverlay(grid, hero, drop)
+		uiOverlayOpen = true
 	}
 	if showEquipment {
 		drawEquipmentPanel(grid, hero)
@@ -380,17 +385,20 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 		}
 	}
 	frame.WriteString("\x1b[0m\x1b[K\x1b[?2026l")
-	for index, foe := range foes {
-		if foe.Health <= 0 {
-			continue
+	if !uiOverlayOpen {
+		for index, foe := range foes {
+			if foe.Health <= 0 {
+				continue
+			}
+			imageID, cols, rows := enemySpriteSize(foe)
+			x, y := foe.x, foe.y
+			if foe.tank {
+				x++
+				y++
+			}
+			row := max(y-rows/2, 3) // Keep enemy art below the two HUD rows.
+			frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", row, max(x-cols/2, 1), imageID, index+1, cols, rows))
 		}
-		imageID, cols, rows := enemySpriteSize(foe)
-		x, y := foe.x, foe.y
-		if foe.tank {
-			x++
-			y++
-		}
-		frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", max(y-rows/2, 1), max(x-cols/2, 1), imageID, index+1, cols, rows))
 	}
 	// Overlay the pixel art after the text frame so the terminal image is not
 	// overwritten by subsequent character drawing.
@@ -1094,24 +1102,46 @@ func levelUp(hero *player) {
 	}
 }
 
-func resolveBattle(hero *player, foe *enemy, now time.Time) bool {
-	if hero.Health <= 0 || foe.Health <= 0 || now.Sub(hero.lastHit) < 500*time.Millisecond {
-		return false
+func resolveBattle(hero *player, foes []enemy, now time.Time) (int, []int) {
+	if hero.Health <= 0 || now.Sub(hero.lastHit) < 500*time.Millisecond {
+		return -1, nil
 	}
-	if !heroCanHitEnemy(*foe, hero.x, hero.y) {
-		return false
+	attackTarget := -1
+	nearestTargetDistance := int(^uint(0) >> 1)
+	hitAny := false
+	incomingDamage := 0
+	defeated := make([]int, 0)
+	for i := range foes {
+		foe := &foes[i]
+		if foe.Health <= 0 || !heroCanHitEnemyAOE(*foe, hero.x, hero.y) {
+			continue
+		}
+		hitAny = true
+		foeX, foeY := foe.x, foe.y
+		if foe.tank {
+			foeX++
+			foeY++
+		}
+		distance := abs(foeX-hero.x)/2 + abs(foeY-hero.y)
+		if distance < nearestTargetDistance {
+			attackTarget, nearestTargetDistance = i, distance
+		}
+		foeEffectiveDamage := int(math.Ceil(
+			float64(foe.Damage) * (10.0 / (10.0 + float64(hero.Armour))),
+		))
+		incomingDamage += max(foeEffectiveDamage, 0)
+		foe.Health -= effectiveDamage(*hero)
+		if foe.Health <= 0 {
+			hero.Experience += foe.ExperienceOnKill
+			defeated = append(defeated, i)
+		}
 	}
-
-	foe.Health -= effectiveDamage(*hero)
-	foeEffectiveDamage := int(math.Ceil(
-		float64(foe.Damage) * (10.0 / (10.0 + float64(hero.Armour))),
-	))
-	hero.Health = max(hero.Health-max(foeEffectiveDamage, 0), 0)
+	if !hitAny {
+		return -1, nil
+	}
 	hero.lastHit = now
-	if foe.Health <= 0 {
-		hero.Experience += foe.ExperienceOnKill
-	}
-	return true
+	hero.Health = max(hero.Health-incomingDamage, 0)
+	return attackTarget, defeated
 }
 
 func enemyTouchesPlayer(foe enemy, playerX, playerY int) bool {
@@ -1130,6 +1160,16 @@ func heroCanHitEnemy(foe enemy, playerX, playerY int) bool {
 		maxY++
 	}
 	return playerX >= foe.x-3 && playerX <= maxX+3 && playerY >= foe.y-2 && playerY <= maxY+2
+}
+
+func heroCanHitEnemyAOE(foe enemy, playerX, playerY int) bool {
+	maxX, maxY := foe.x, foe.y
+	if foe.tank {
+		maxX++
+		maxY++
+	}
+	return playerX >= foe.x-heroAttackAOEHorizontalRange && playerX <= maxX+heroAttackAOEHorizontalRange &&
+		playerY >= foe.y-heroAttackAOEVerticalRange && playerY <= maxY+heroAttackAOEVerticalRange
 }
 
 func abs(value int) int {
