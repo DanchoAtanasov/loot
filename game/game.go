@@ -86,6 +86,11 @@ type healthPickup struct {
 	y int
 }
 
+type bush struct {
+	x int
+	y int
+}
+
 type enemyDeathEffect struct {
 	x, y      int
 	tank      bool
@@ -158,7 +163,10 @@ func Run() {
 	fmt.Print(kittyTransmitHero(healthImage, healthImageID))
 
 	width, height := readTerminalSize()
-	playerX, playerY := chamberCenter(width, height)
+	worldWidth := width * 4
+	left, _, top, bottom := chamberBounds(worldWidth, height)
+	playerX, playerY := left+2, (top+bottom)/2
+	bushes := scatterBushes(worldWidth, height)
 	hero := player{
 		Player:   models.DefaultPlayer,
 		weapon:   items.Weapon{},
@@ -167,7 +175,11 @@ func Run() {
 		facing:   's',
 		lastMove: time.Now(),
 	}
-	foes := spawnEnemyPack(width, height)
+	foes := spawnEnemyPack(worldWidth, height)
+	_, worldRight, _, _ := chamberBounds(worldWidth, height)
+	tank := newEnemy(true, false)
+	tank.x, tank.y = worldRight-3, playerY
+	foes = append(foes, tank)
 	deathEffects := make([]enemyDeathEffect, 0)
 	pickups := make([]healthPickup, 0)
 	gearDrops := make([]gearDrop, 0)
@@ -191,13 +203,13 @@ func Run() {
 	for {
 		// Refresh the bounds and keep the characters inside the chamber.
 		width, height = readTerminalSize()
-		hero.x, hero.y = keepPlayerInChamber(hero.x, hero.y, width, height)
+		hero.x, hero.y = keepPlayerInChamber(hero.x, hero.y, worldWidth, height)
 
 		// Keep combat and world timers frozen while the game is paused.
 		now := time.Now()
 		if !paused {
 			for i := range foes {
-				foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, width, height, foes[i].tank)
+				foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, worldWidth, height, foes[i].tank)
 			}
 			attackTarget, defeated := resolveBattle(&hero, foes, now)
 			if attackTarget >= 0 {
@@ -207,7 +219,7 @@ func Run() {
 			for _, index := range defeated {
 				foe := foes[index]
 				if rand.IntN(100) < 30 {
-					dropX, dropY := weaponDropPosition(foe, hero, width, height)
+					dropX, dropY := weaponDropPosition(foe, hero, worldWidth, height)
 					drop := gearDrop{x: dropX, y: dropY}
 					if rand.IntN(2) == 0 {
 						drop.weapon = items.DropItem()
@@ -250,7 +262,7 @@ func Run() {
 		if !hero.attackStarted.IsZero() && time.Since(hero.attackStarted) < 240*time.Millisecond {
 			swingFrame = int(time.Since(hero.attackStarted) / (60 * time.Millisecond))
 		}
-		fmt.Print(renderDungeon(hero, width, height, idleFrame, swingFrame, foes, pickups, gearDrops, deathEffects, showEquipment))
+		fmt.Print(renderDungeon(hero, width, height, worldWidth, idleFrame, swingFrame, foes, pickups, gearDrops, deathEffects, bushes, showEquipment))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -284,12 +296,12 @@ func Run() {
 				continue
 			}
 			if hero.Health > 0 && event.pressed {
-				hero.x, hero.y, hero.facing = movePlayer(byte(event.key), hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height, foes, deathEffects)
+				hero.x, hero.y, hero.facing = movePlayer(byte(event.key), hero.x, hero.y, hero.facing, hero.MovementSpeed, worldWidth, height, foes, deathEffects)
 				hero.lastMove = time.Now()
 			}
 		case now := <-ticker.C:
 			if !paused && hero.Health > 0 && now.Sub(lastStep) >= 120*time.Millisecond {
-				nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, hero.MovementSpeed, width, height, foes, deathEffects)
+				nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, hero.MovementSpeed, worldWidth, height, foes, deathEffects)
 				if nextX != hero.x || nextY != hero.y {
 					hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
 					hero.lastMove = now
@@ -298,21 +310,21 @@ func Run() {
 			}
 		case <-enemyTicker.C:
 			if !paused {
-				stepEnemyPacks(foes, hero.x, hero.y, width, height, time.Now())
+				stepEnemyPacks(foes, hero.x, hero.y, worldWidth, height, time.Now())
 			}
 		case <-enemySpawnTicker.C:
 			if !paused {
-				foes = append(foes, spawnEnemyPack(width, height)...)
+				foes = append(foes, spawnEnemyPack(worldWidth, height)...)
 			}
 		case <-pickupTicker.C:
 			if !paused {
-				pickups = append(pickups, spawnHealthPickup(width, height))
+				pickups = append(pickups, spawnHealthPickup(worldWidth, height))
 			}
 		}
 	}
 }
 
-func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, showEquipment bool) string {
+func renderDungeon(hero player, width, height, worldWidth int, idleFrame bool, swingFrame int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, bushes []bush, showEquipment bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -321,15 +333,13 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 		}
 	}
 
-	// Carve a broad stone chamber enclosed by a solid, clearly visible wall.
-	left, right := 2, width-3
-	top, bottom := 1, height-2
-	if right-left < 8 || bottom-top < 6 {
-		left, right, top, bottom = 0, width-1, 0, height-1
-	}
+	worldLeft, worldRight, top, bottom := chamberBounds(worldWidth, height)
+	viewLeft := min(max(hero.x-width/2, worldLeft), max(worldLeft, worldRight-width+1))
+	left := max(worldLeft-viewLeft, 0)
+	right := min(worldRight-viewLeft, width-1)
 	for y := top; y <= bottom; y++ {
 		for x := left; x <= right; x++ {
-			border := x == left || x == right || y == top || y == bottom
+			border := (viewLeft+x == worldLeft || viewLeft+x == worldRight) || y == top || y == bottom
 			if border {
 				grid[y][x] = tile{'█', "\x1b[38;2;174;181;192m"}
 			} else {
@@ -337,27 +347,54 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 			}
 		}
 	}
+	for _, plant := range bushes {
+		x := plant.x - viewLeft
+		if x >= left && x <= right && plant.y > top && plant.y < bottom {
+			grid[plant.y][x] = tile{'♣', "\x1b[38;2;93;147;83m"}
+			if x+1 <= right {
+				grid[plant.y][x+1] = tile{'♧', "\x1b[38;2;115;164;92m"}
+			}
+			if plant.y+1 < bottom && x+1 <= right {
+				grid[plant.y+1][x+1] = tile{'♣', "\x1b[38;2;77;128;75m"}
+			}
+		}
+	}
 
 	if right-left >= 12 && bottom-top >= 8 {
-		midX, midY := (left+right)/2, (top+bottom)/2
-		for _, p := range [][2]int{{left + 4, top + 3}, {right - 4, top + 3}, {left + 4, bottom - 3}, {right - 4, bottom - 3}} {
-			grid[p[1]][p[0]] = tile{'╬', "\x1b[38;2;145;132;103m"}
+		midX, midY := (worldLeft+worldRight)/2-viewLeft, (top+bottom)/2
+		for _, p := range [][2]int{{worldLeft + 4 - viewLeft, top + 3}, {worldRight - 4 - viewLeft, top + 3}, {worldLeft + 4 - viewLeft, bottom - 3}, {worldRight - 4 - viewLeft, bottom - 3}} {
+			if p[0] > left && p[0] < right {
+				grid[p[1]][p[0]] = tile{'╬', "\x1b[38;2;145;132;103m"}
+			}
 		}
 		// An old flagstone circle marks the center of the room.
-		for _, p := range [][2]int{{midX, midY}, {midX - 1, midY}, {midX + 1, midY}, {midX, midY - 1}, {midX, midY + 1}} {
-			grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
+		if midX >= left && midX <= right {
+			for _, p := range [][2]int{{midX, midY}, {midX - 1, midY}, {midX + 1, midY}, {midX, midY - 1}, {midX, midY + 1}} {
+				if p[0] >= left && p[0] <= right {
+					grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
+				}
+			}
 		}
 	}
 	drawHUD(grid, hero, foes, gearDrops)
-	drawEnemyDeathEffects(grid, deathEffects, left, right, top, bottom, time.Now())
+	visibleEffects := make([]enemyDeathEffect, 0, len(deathEffects))
+	for _, effect := range deathEffects {
+		effect.x -= viewLeft
+		visibleEffects = append(visibleEffects, effect)
+	}
+	drawEnemyDeathEffects(grid, visibleEffects, left, right, top, bottom, time.Now())
 	for _, drop := range gearDrops {
+		drop.x -= viewLeft
 		drawGearDrop(grid, drop, left, right, top, bottom)
 	}
-	drawLevelUpEffect(grid, hero.x, hero.y, hero.levelUpStarted, time.Now(), left, right, top, bottom)
+	drawLevelUpEffect(grid, hero.x-viewLeft, hero.y, hero.levelUpStarted, time.Now(), left, right, top, bottom)
 	// The player is rendered as a Kitty graphics placement after the text frame.
 	uiOverlayOpen := showEquipment
 	if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) {
-		drawGearOverlay(grid, hero, drop)
+		drawHero, drawDrop := hero, drop
+		drawHero.x -= viewLeft
+		drawDrop.x -= viewLeft
+		drawGearOverlay(grid, drawHero, drawDrop)
 		uiOverlayOpen = true
 	}
 	if showEquipment {
@@ -391,8 +428,12 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	frame.WriteString("\x1b[0m\x1b[K\x1b[?2026l")
 	if !uiOverlayOpen {
 		for index, pickup := range pickups {
+			x := pickup.x - viewLeft
+			if x+healthImageCols/2 < 0 || x-healthImageCols/2 >= width {
+				continue
+			}
 			row := max(pickup.y-healthImageRows/2, 3)
-			col := max(pickup.x-healthImageCols/2, 1)
+			col := max(x-healthImageCols/2, 1)
 			frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", row, col, healthImageID, index+1, healthImageCols, healthImageRows))
 		}
 	}
@@ -400,8 +441,12 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 		if foe.Health <= 0 {
 			continue
 		}
+		x := foe.x - viewLeft
+		if x+heroImageCols/2 < 0 || x-heroImageCols/2 >= width {
+			continue
+		}
 		imageID, cols, rows := enemySpriteSize(foe)
-		x, y := foe.x, foe.y
+		y := foe.y
 		if foe.tank {
 			x++
 			y++
@@ -418,7 +463,8 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 	if hero.facing == 'd' || hero.facing == 'e' || hero.facing == 'c' {
 		imageID += 5
 	}
-	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(hero.y-heroImageRows/2, 1), max(hero.x-heroImageCols/2, 1), imageID, heroImageCols, heroImageRows))
+	heroScreenX := hero.x - viewLeft
+	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(hero.y-heroImageRows/2, 1), max(heroScreenX-heroImageCols/2, 1), imageID, heroImageCols, heroImageRows))
 	return frame.String()
 }
 
@@ -990,6 +1036,29 @@ func newEnemy(tank, brute bool) enemy {
 
 func randomBetween(minimum, maximum int) int {
 	return minimum + rand.IntN(maximum-minimum+1)
+}
+
+func scatterBushes(width, height int) []bush {
+	left, right, top, bottom := chamberBounds(width, height)
+	count := max((right-left)/12, 1)
+	plants := make([]bush, 0, count)
+	for len(plants) < count {
+		candidate := bush{
+			x: randomBetween(left+1, right-2),
+			y: randomBetween(top+1, bottom-2),
+		}
+		tooClose := false
+		for _, existing := range plants {
+			if abs(existing.x-candidate.x) < 4 && abs(existing.y-candidate.y) < 3 {
+				tooClose = true
+				break
+			}
+		}
+		if !tooClose {
+			plants = append(plants, candidate)
+		}
+	}
+	return plants
 }
 
 func stepEnemyPacks(foes []enemy, heroX, heroY, width, height int, now time.Time) {
