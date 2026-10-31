@@ -124,6 +124,8 @@ func Run() {
 
 	fmt.Print("\x1b[?1049h\x1b[>10u\x1b[?25l\x1b[2J") // alternate screen, key events, hide cursor
 	defer fmt.Print("\x1b[?2026l\x1b[0m\x1b[?25h\x1b[<u\x1b[?1049l")
+	loadingWidth, loadingHeight := readTerminalSize()
+	fmt.Print(renderLoadingScreen(loadingWidth, loadingHeight))
 	for imageID, path := range []string{
 		"assets/hero.jpeg",
 		"assets/hero_prep.jpeg",

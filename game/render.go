@@ -14,6 +14,41 @@ import (
 	"time"
 )
 
+func renderLoadingScreen(width, height int) string {
+	var frame strings.Builder
+	frame.WriteString("\x1b[2J\x1b[H\x1b[?2026h")
+	letters := map[rune][5]string{
+		'S': {"█████", "█    ", "█████", "    █", "█████"},
+		'I': {"█████", "  █  ", "  █  ", "  █  ", "█████"},
+		'G': {"█████", "█    ", "█ ███", "█   █", "█████"},
+		'K': {"█   █", "█  █ ", "███  ", "█  █ ", "█   █"},
+		'L': {"█    ", "█    ", "█    ", "█    ", "█████"},
+	}
+	label := "SIGKILL"
+	const letterWidth = 5
+	const letterGap = 1
+	labelWidth := len(label)*(letterWidth+letterGap) - letterGap
+	labelHeight := 5
+	status := "LOADING..."
+	blockHeight := labelHeight + 2 + 1
+	startRow := max((height-blockHeight)/2+1, 1)
+	startColumn := max((width-labelWidth)/2+1, 1)
+	for row := 0; row < labelHeight; row++ {
+		line := make([]rune, 0, labelWidth)
+		for index, letter := range label {
+			if index > 0 {
+				line = append(line, ' ')
+			}
+			line = append(line, []rune(letters[letter][row])...)
+		}
+		fmt.Fprintf(&frame, "\x1b[%d;%dH\x1b[1;38;2;236;87;87m%s", startRow+row, startColumn, string(line))
+	}
+	statusColumn := max((width-len(status))/2+1, 1)
+	fmt.Fprintf(&frame, "\x1b[%d;%dH\x1b[0;38;2;160;166;174m%s", startRow+labelHeight+2, statusColumn, status)
+	frame.WriteString("\x1b[0m\x1b[?2026l")
+	return frame.String()
+}
+
 func renderDungeon(hero player, width, height, worldWidth, runningFrame, swingFrame int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, bushes []bush, showEquipment bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
