@@ -26,7 +26,7 @@ var DefaultPlayer = Player{
 }
 
 var LevelThreshold []int = []int{
-	0, 50, 100, 200, 300, 400, 500, 700, 900, 1200,
+	0, 50, 100, 200, 300, 400, 500, 700, 900, 1200, 1500, 1800, 2100, 2400, 3000,
 }
 
 var PlayerStatGrowth StatGrowth = StatGrowth{
