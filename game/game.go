@@ -398,19 +398,19 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 			col := max(pickup.x-healthImageCols/2, 1)
 			frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", row, col, healthImageID, index+1, healthImageCols, healthImageRows))
 		}
-		for index, foe := range foes {
-			if foe.Health <= 0 {
-				continue
-			}
-			imageID, cols, rows := enemySpriteSize(foe)
-			x, y := foe.x, foe.y
-			if foe.tank {
-				x++
-				y++
-			}
-			row := max(y-rows/2, 3) // Keep enemy art below the two HUD rows.
-			frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", row, max(x-cols/2, 1), imageID, index+1, cols, rows))
+	}
+	for index, foe := range foes {
+		if foe.Health <= 0 {
+			continue
 		}
+		imageID, cols, rows := enemySpriteSize(foe)
+		x, y := foe.x, foe.y
+		if foe.tank {
+			x++
+			y++
+		}
+		row := max(y-rows/2, 3) // Keep enemy art below the two HUD rows.
+		frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", row, max(x-cols/2, 1), imageID, index+1, cols, rows))
 	}
 	// Overlay the pixel art after the text frame so the terminal image is not
 	// overwritten by subsequent character drawing.
