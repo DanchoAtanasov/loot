@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"image/jpeg"
+	_ "image/jpeg"
 	"image/png"
 	"math"
 	"math/rand/v2"
@@ -34,6 +34,10 @@ const (
 	enemyMediumImageID           = 12
 	enemyTankImageID             = 13
 	healthImageID                = 14
+	heroRunLeftImageID           = 15
+	heroRunRightImageID          = 16
+	heroRunLeftMirroredImageID   = 17
+	heroRunRightMirroredImageID  = 18
 	enemyAggroHorizontalRange    = 20
 	enemyAggroVerticalRange      = 9
 	heroAttackAOEHorizontalRange = 8
@@ -144,6 +148,20 @@ func Run() {
 		}
 		fmt.Print(kittyTransmitHero(mirroredHero, imageID+6))
 	}
+	for imageID, path := range []string{"assets/hero_run_left.png", "assets/hero_run_right.png"} {
+		runImage, err := loadKittyHero(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "could not load hero run image %q: %v\n", path, err)
+			return
+		}
+		fmt.Print(kittyTransmitHero(runImage, heroRunLeftImageID+imageID))
+		mirroredRunImage, err := flipKittyHero(runImage)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "could not mirror hero run image %q: %v\n", path, err)
+			return
+		}
+		fmt.Print(kittyTransmitHero(mirroredRunImage, heroRunLeftMirroredImageID+imageID))
+	}
 	for imageID, path := range []string{
 		"assets/enemy_small.jpeg",
 		"assets/enemy_medium.jpeg",
@@ -190,6 +208,7 @@ func Run() {
 	keys := make(chan keyEvent, 32)
 	heldKeys := make(map[rune]bool)
 	lastStep := time.Time{}
+	runAnimationStarted := time.Time{}
 	go readKeys(keys)
 
 	frameDuration := time.Second / framesPerSecond
@@ -260,11 +279,20 @@ func Run() {
 		// Switch the warrior's pose while idle.
 		idleTime := time.Since(hero.lastMove)
 		idleFrame := idleTime > 400*time.Millisecond && int(idleTime/(500*time.Millisecond))%2 == 1
+		runningFrame := -1
+		if idleTime <= 200*time.Millisecond {
+			if runAnimationStarted.IsZero() {
+				runAnimationStarted = time.Now()
+			}
+			runningFrame = int(time.Since(runAnimationStarted)/(100*time.Millisecond)) % 2
+		} else {
+			runAnimationStarted = time.Time{}
+		}
 		swingFrame := -1
 		if !hero.attackStarted.IsZero() && time.Since(hero.attackStarted) < 240*time.Millisecond {
 			swingFrame = int(time.Since(hero.attackStarted) / (60 * time.Millisecond))
 		}
-		fmt.Print(renderDungeon(hero, width, height, worldWidth, idleFrame, swingFrame, foes, pickups, gearDrops, deathEffects, bushes, showEquipment))
+		fmt.Print(renderDungeon(hero, width, height, worldWidth, idleFrame, runningFrame, swingFrame, foes, pickups, gearDrops, deathEffects, bushes, showEquipment))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -326,7 +354,7 @@ func Run() {
 	}
 }
 
-func renderDungeon(hero player, width, height, worldWidth int, idleFrame bool, swingFrame int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, bushes []bush, showEquipment bool) string {
+func renderDungeon(hero player, width, height, worldWidth int, idleFrame bool, runningFrame, swingFrame int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, bushes []bush, showEquipment bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -409,7 +437,7 @@ func renderDungeon(hero player, width, height, worldWidth int, idleFrame bool, s
 
 	var frame bytes.Buffer
 	frame.WriteString("\x1b[?2026h")
-	for imageID := 1; imageID <= 10; imageID++ {
+	for imageID := 1; imageID <= heroRunRightMirroredImageID; imageID++ {
 		fmt.Fprintf(&frame, "\x1b_Ga=d,d=i,i=%d,p=1,q=2\x1b\\", imageID)
 	}
 	for imageID := enemySmallImageID; imageID <= enemyTankImageID; imageID++ {
@@ -465,9 +493,15 @@ func renderDungeon(hero player, width, height, worldWidth int, idleFrame bool, s
 	imageID := 1
 	if swingFrame >= 0 {
 		imageID = 2 + swingFrame
+	} else if runningFrame >= 0 {
+		imageID = heroRunLeftMirroredImageID + runningFrame
 	}
 	if hero.facing == 'd' || hero.facing == 'e' || hero.facing == 'c' {
-		imageID += 5
+		if runningFrame >= 0 && swingFrame < 0 {
+			imageID = heroRunLeftImageID + runningFrame
+		} else {
+			imageID += 5
+		}
 	}
 	heroScreenX := hero.x - viewLeft
 	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(hero.y-heroImageRows/2, 1), max(heroScreenX-heroImageCols/2, 1), imageID, heroImageCols, heroImageRows))
@@ -520,7 +554,7 @@ func loadKittyHero(path string) ([]byte, error) {
 		return nil, err
 	}
 	defer file.Close()
-	source, err := jpeg.Decode(file)
+	source, _, err := image.Decode(file)
 	if err != nil {
 		return nil, err
 	}
@@ -1621,19 +1655,30 @@ func readKeys(keys chan<- keyEvent) {
 }
 
 func parseKeySequence(sequence string, terminator byte) (keyEvent, bool) {
-	// Accept both plain CSI arrows (for example, ESC [ A) and the
-	// modifier-bearing form used by some terminals (ESC [ 1 ; 1 A).
-	if terminator == 'A' {
-		return keyEvent{key: 'w', pressed: true}, true
+	// Plain CSI arrows work as single steps. Kitty CSI arrows include event
+	// types, which let held movement stop cleanly on key release.
+	arrow := rune(0)
+	switch terminator {
+	case 'A':
+		arrow = 'w'
+	case 'B':
+		arrow = 's'
+	case 'C':
+		arrow = 'd'
+	case 'D':
+		arrow = 'a'
 	}
-	if terminator == 'B' {
-		return keyEvent{key: 's', pressed: true}, true
-	}
-	if terminator == 'C' {
-		return keyEvent{key: 'd', pressed: true}, true
-	}
-	if terminator == 'D' {
-		return keyEvent{key: 'a', pressed: true}, true
+	if arrow != 0 {
+		if !strings.Contains(sequence, ":") {
+			return keyEvent{key: arrow, pressed: true}, true
+		}
+		fields := strings.Split(sequence, ";")
+		eventFields := strings.Split(fields[len(fields)-1], ":")
+		eventType, err := strconv.Atoi(eventFields[len(eventFields)-1])
+		if err != nil {
+			return keyEvent{}, false
+		}
+		return keyEvent{key: arrow, pressed: eventType != 3, tracked: true}, true
 	}
 	if terminator != 'u' {
 		return keyEvent{}, false
