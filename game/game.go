@@ -321,7 +321,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 		}
 	}
 
-	// Carve a broad stone chamber with a short passage at each cardinal wall.
+	// Carve a broad stone chamber enclosed by a solid, clearly visible wall.
 	left, right := 2, width-3
 	top, bottom := 1, height-2
 	if right-left < 8 || bottom-top < 6 {
@@ -331,7 +331,7 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 		for x := left; x <= right; x++ {
 			border := x == left || x == right || y == top || y == bottom
 			if border {
-				grid[y][x] = tile{'▓', "\x1b[38;2;105;111;119m"}
+				grid[y][x] = tile{'█', "\x1b[38;2;174;181;192m"}
 			} else {
 				grid[y][x] = tile{'·', "\x1b[38;2;66;71;78m"}
 			}
@@ -340,9 +340,6 @@ func renderDungeon(hero player, width, height int, idleFrame bool, swingFrame in
 
 	if right-left >= 12 && bottom-top >= 8 {
 		midX, midY := (left+right)/2, (top+bottom)/2
-		for _, p := range [][2]int{{left, midY}, {right, midY}, {midX, top}, {midX, bottom}} {
-			grid[p[1]][p[0]] = tile{' ', ""}
-		}
 		for _, p := range [][2]int{{left + 4, top + 3}, {right - 4, top + 3}, {left + 4, bottom - 3}, {right - 4, bottom - 3}} {
 			grid[p[1]][p[0]] = tile{'╬', "\x1b[38;2;145;132;103m"}
 		}
