@@ -220,7 +220,7 @@ func Run() {
 			}
 			for _, index := range defeated {
 				foe := foes[index]
-				if foe.finalBoss || rand.IntN(100) < 30 {
+				if rand.IntN(100) < foe.Enemy.DropChance() {
 					dropX, dropY := weaponDropPosition(foe, hero, worldWidth, height)
 					drop := gearDrop{x: dropX, y: dropY}
 					if rand.IntN(2) == 0 {
