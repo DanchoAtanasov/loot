@@ -77,7 +77,7 @@ func DropItem() Weapon {
 }
 
 func DropArmour() Armour {
-	pool := []Armour{LeatherVest, Chainmail}
+	pool := []Armour{LeatherVest, Chainmail, LeatherCap, IronHelm, TravelBelt, WarBelt, WoodenShield, IronShield}
 	armour := pool[rand.IntN(len(pool))]
 	if stats, exists := ArmourStats[armour]; exists {
 		armour.Defence = stats.Defence

@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"DanchoAtanasov/loot/items"
 )
 
 func renderLoadingScreen(width, height int) string {
@@ -388,7 +390,7 @@ func drawHUD(grid [][]tile, hero player, stage int, foes []enemy, gearDrops []ge
 			itemSegments = []hudSegment{
 				{text: "DROP: ", color: "\x1b[38;2;184;204;221m"},
 				{text: drop.armour.Name, color: weaponTierColor(drop.armour.Tier)},
-				{text: fmt.Sprintf(" %s DEF %d  [SPACE nearby]", weaponTierName(drop.armour.Tier), drop.armour.Defence), color: "\x1b[38;2;184;204;221m"},
+				{text: fmt.Sprintf(" %s %s DEF %d  [SPACE nearby]", weaponTierName(drop.armour.Tier), armourSlotName(drop.armour.Slot), drop.armour.Defence), color: "\x1b[38;2;184;204;221m"},
 			}
 		} else {
 			itemSegments = []hudSegment{
@@ -434,14 +436,15 @@ func drawGearOverlay(grid [][]tile, hero player, drop gearDrop) {
 		drawPanelLine(grid, row, left, panelWidth, borderColor, segments)
 	}
 	if drop.isArmour {
-		line(top+1, hudSegment{text: " ARMOUR COMPARISON", color: "\x1b[38;2;230;221;190m"})
+		equipped := equippedArmourForSlot(hero, drop.armour.Slot)
+		line(top+1, hudSegment{text: " " + armourSlotName(drop.armour.Slot) + " COMPARISON", color: "\x1b[38;2;230;221;190m"})
 		line(top+2, hudSegment{text: " Found: ", color: "\x1b[38;2;184;204;221m"}, hudSegment{text: drop.armour.Name, color: weaponTierColor(drop.armour.Tier)})
 		line(top+3, hudSegment{text: " Rarity: " + weaponTierName(drop.armour.Tier), color: weaponTierColor(drop.armour.Tier)})
 		line(top+4, hudSegment{text: fmt.Sprintf(" Defence: %d", drop.armour.Defence), color: "\x1b[38;2;222;222;210m"})
-		line(top+5, hudSegment{text: " Equipped: " + equippedArmourName(hero.armour), color: weaponTierColor(hero.armour.Tier)})
-		line(top+6, hudSegment{text: " Rarity: " + weaponTierName(hero.armour.Tier), color: weaponTierColor(hero.armour.Tier)})
-		line(top+7, hudSegment{text: fmt.Sprintf(" Defence: %d", hero.Armour), color: "\x1b[38;2;222;222;210m"})
-		line(top+8, hudSegment{text: fmt.Sprintf(" Defence change: %+d", drop.armour.Defence-hero.Armour), color: "\x1b[38;2;232;193;104m"})
+		line(top+5, hudSegment{text: " Equipped: " + equippedArmourName(equipped), color: weaponTierColor(equipped.Tier)})
+		line(top+6, hudSegment{text: " Rarity: " + weaponTierName(equipped.Tier), color: weaponTierColor(equipped.Tier)})
+		line(top+7, hudSegment{text: fmt.Sprintf(" Defence: %d", equipped.Defence), color: "\x1b[38;2;222;222;210m"})
+		line(top+8, hudSegment{text: fmt.Sprintf(" Defence change: %+d", drop.armour.Defence-equipped.Defence), color: "\x1b[38;2;232;193;104m"})
 		line(top+9, hudSegment{text: " Press SPACE to equip", color: "\x1b[38;2;184;204;221m"})
 		drawWeaponPanelBorder(grid, top+10, left, panelWidth, borderColor)
 		return
@@ -477,14 +480,27 @@ func drawEquipmentPanel(grid [][]tile, hero player) {
 	weaponColor := weaponTierColor(hero.weapon.Tier)
 	armourColor := weaponTierColor(hero.armour.Tier)
 	centerSlot := left + (panelWidth-20)/2
-	drawEquipmentSlot(grid, centerSlot, top+2, 20, "HELMET", "Not equipped", "", "\x1b[38;2;184;204;221m", []string{"^^", "||"})
+	drawEquipmentSlot(grid, centerSlot, top+2, 20, "HELMET", equippedArmourName(hero.helmet), fmt.Sprintf("DEF %d", hero.helmet.Defence), weaponTierColor(hero.helmet.Tier), []string{"^^", "||"})
 	drawEquipmentSlot(grid, left+2, top+6, 20, "WEAPON", equippedWeaponName(hero.weapon), fmt.Sprintf("DMG %d", hero.weapon.Damage), weaponColor, []string{" /", "/|"})
-	drawEquipmentSlot(grid, centerSlot, top+6, 20, "CHEST", equippedArmourName(hero.armour), fmt.Sprintf("DEF %d", hero.Armour), armourColor, []string{"[#", "##"})
-	drawEquipmentSlot(grid, left+panelWidth-22, top+6, 20, "OFF-HAND", "Not equipped", "", "\x1b[38;2;184;204;221m", []string{"[ ]", "|#|"})
-	drawEquipmentSlot(grid, centerSlot, top+10, 20, "BELT", "Not equipped", "", "\x1b[38;2;184;204;221m", []string{"===", "|||"})
+	drawEquipmentSlot(grid, centerSlot, top+6, 20, "CHEST", equippedArmourName(hero.armour), fmt.Sprintf("DEF %d", hero.armour.Defence), armourColor, []string{"[#", "##"})
+	drawEquipmentSlot(grid, left+panelWidth-22, top+6, 20, "OFF-HAND", equippedArmourName(hero.offHand), fmt.Sprintf("DEF %d", hero.offHand.Defence), weaponTierColor(hero.offHand.Tier), []string{"[ ]", "|#|"})
+	drawEquipmentSlot(grid, centerSlot, top+10, 20, "BELT", equippedArmourName(hero.belt), fmt.Sprintf("DEF %d", hero.belt.Defence), weaponTierColor(hero.belt.Tier), []string{"===", "|||"})
 	line(15, hudSegment{text: fmt.Sprintf(" TOTAL DAMAGE %d", effectiveDamage(hero)), color: "\x1b[38;2;232;193;104m"}, hudSegment{text: fmt.Sprintf("     TOTAL DEFENCE %d", hero.Armour), color: "\x1b[38;2;222;222;210m"})
 	line(16, hudSegment{text: " Press I to close and resume", color: "\x1b[38;2;184;204;221m"})
 	drawWeaponPanelBorder(grid, top+17, left, panelWidth, borderColor)
+}
+
+func armourSlotName(slot items.ArmourSlot) string {
+	switch slot {
+	case items.HelmetSlot:
+		return "HELMET"
+	case items.BeltSlot:
+		return "BELT"
+	case items.OffHandSlot:
+		return "OFF-HAND"
+	default:
+		return "CHEST"
+	}
 }
 
 func drawEquipmentSlot(grid [][]tile, x, y, width int, title, name, stats, color string, art []string) {

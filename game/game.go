@@ -72,7 +72,10 @@ type enemy struct {
 type player struct {
 	models.Player
 	weapon         items.Weapon
-	armour         items.Armour
+	armour         items.Armour // chest slot
+	helmet         items.Armour
+	belt           items.Armour
+	offHand        items.Armour
 	potions        int
 	x, y           int
 	facing         byte
@@ -465,8 +468,17 @@ func pickupGearDrop(hero *player, drops []gearDrop) []gearDrop {
 	}
 	drop := drops[nearestIndex]
 	if drop.isArmour {
-		hero.armour = drop.armour
-		hero.Armour = drop.armour.Defence
+		switch drop.armour.Slot {
+		case items.HelmetSlot:
+			hero.helmet = drop.armour
+		case items.BeltSlot:
+			hero.belt = drop.armour
+		case items.OffHandSlot:
+			hero.offHand = drop.armour
+		default:
+			hero.armour = drop.armour
+		}
+		hero.Armour = totalArmour(*hero)
 	} else {
 		hero.weapon = drop.weapon
 	}
@@ -504,6 +516,23 @@ func equippedArmourName(armour items.Armour) string {
 		return "None"
 	}
 	return armour.Name
+}
+
+func totalArmour(hero player) int {
+	return hero.armour.Defence + hero.helmet.Defence + hero.belt.Defence + hero.offHand.Defence
+}
+
+func equippedArmourForSlot(hero player, slot items.ArmourSlot) items.Armour {
+	switch slot {
+	case items.HelmetSlot:
+		return hero.helmet
+	case items.BeltSlot:
+		return hero.belt
+	case items.OffHandSlot:
+		return hero.offHand
+	default:
+		return hero.armour
+	}
 }
 
 func effectiveDamage(hero player) int {
