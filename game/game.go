@@ -328,8 +328,10 @@ func Run() {
 				hero.lastMove = time.Now()
 			}
 		case now := <-ticker.C:
-			if !paused && hero.Health > 0 && now.Sub(lastStep) >= 120*time.Millisecond {
-				nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, hero.MovementSpeed, worldWidth, height, foes, deathEffects)
+			if !paused && hero.Health > 0 && now.Sub(lastStep) >= 40*time.Millisecond {
+				// Advance held movement in single-cell increments. Rendering and the
+				// run cycle continue independently at 60 fps between movement ticks.
+				nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, 1, worldWidth, height, foes, deathEffects)
 				if nextX != hero.x || nextY != hero.y {
 					hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
 					hero.lastMove = now
