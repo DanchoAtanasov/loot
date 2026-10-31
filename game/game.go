@@ -26,6 +26,7 @@ import (
 
 const (
 	framesPerSecond              = 60
+	initialEnemyPackCount        = 20
 	heroImageCols                = 26
 	heroImageRows                = 7
 	healthImageCols              = 12
@@ -194,7 +195,7 @@ func Run() {
 		facing:   's',
 		lastMove: time.Now(),
 	}
-	foes := spawnEnemyPack(worldWidth, height)
+	foes := spawnEnemyPacks(worldWidth, height, initialEnemyPackCount)
 	_, worldRight, _, _ := chamberBounds(worldWidth, height)
 	tank := newEnemy(true, false)
 	tank.x, tank.y = worldRight-3, playerY
@@ -216,8 +217,6 @@ func Run() {
 	defer ticker.Stop()
 	enemyTicker := time.NewTicker(180 * time.Millisecond)
 	defer enemyTicker.Stop()
-	enemySpawnTicker := time.NewTicker(7 * time.Second)
-	defer enemySpawnTicker.Stop()
 	pickupTicker := time.NewTicker(10 * time.Second)
 	defer pickupTicker.Stop()
 
@@ -309,7 +308,6 @@ func Run() {
 				clear(heldKeys)
 				lastStep = time.Now()
 				if !paused {
-					enemySpawnTicker.Reset(7 * time.Second)
 					pickupTicker.Reset(10 * time.Second)
 				}
 				continue
@@ -341,10 +339,6 @@ func Run() {
 		case <-enemyTicker.C:
 			if !paused {
 				stepEnemyPacks(foes, hero.x, hero.y, worldWidth, height, time.Now())
-			}
-		case <-enemySpawnTicker.C:
-			if !paused {
-				foes = append(foes, spawnEnemyPack(worldWidth, height)...)
 			}
 		case <-pickupTicker.C:
 			if !paused {
@@ -973,16 +967,20 @@ func drawGearDrop(grid [][]tile, drop gearDrop, left, right, top, bottom int) {
 	grid[drop.y][drop.x] = tile{glyph, weaponTierColor(tier)}
 }
 
+func spawnEnemyPacks(width, height, count int) []enemy {
+	foes := make([]enemy, 0, count*3)
+	for i := 0; i < count; i++ {
+		foes = append(foes, spawnEnemyPack(width, height)...)
+	}
+	return foes
+}
+
 func spawnEnemyPack(width, height int) []enemy {
 	packSize := 2 + rand.IntN(2)
-	tankPack := rand.IntN(4) == 0
-	if tankPack {
-		packSize = 1
-	}
 	pack := make([]enemy, 0, packSize)
 	for i := 0; i < packSize; i++ {
-		tank := tankPack
-		brute := !tank && rand.IntN(4) == 0
+		tank := false
+		brute := rand.IntN(4) == 0
 		pack = append(pack, newEnemy(tank, brute))
 	}
 
