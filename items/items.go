@@ -28,19 +28,10 @@ type weaponStats struct {
 }
 
 var Stats = map[Weapon]weaponStats{
-	// Normal
 	Sword:  {MinDamage: 1, MaxDamage: 2, AttackSpeed: 1.5},
 	Bow:    {MinDamage: 1, MaxDamage: 2, AttackSpeed: 1.0},
 	Spear:  {MinDamage: 1, MaxDamage: 2, AttackSpeed: 1.2},
 	Dagger: {MinDamage: 1, MaxDamage: 2, AttackSpeed: 2.0},
-	// Magic
-	EnchantedSword: {MinDamage: 2, MaxDamage: 4, AttackSpeed: 1.5},
-	FlamingBow:     {MinDamage: 2, MaxDamage: 4, AttackSpeed: 1.0},
-	// Rare
-	CursedSword: {MinDamage: 3, MaxDamage: 6, AttackSpeed: 1.5},
-	// Unique
-	Excalibur: {MinDamage: 10, MaxDamage: 15, AttackSpeed: 1.7},
-	Trident:   {MinDamage: 10, MaxDamage: 13, AttackSpeed: 1.2},
 }
 
 // Instances

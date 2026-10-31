@@ -48,41 +48,59 @@ func choose(pool []Weapon) Weapon {
 }
 
 func DropItem() Weapon {
-	// total := 100
 	roll := rollTier(Distributions)
-	// fmt.Printf("Rolled '%d' with chance %.3f\n", roll, float64(distributions[roll])/float64(total))
-
-	var pool []Weapon
-	switch roll {
-	case NormalTier:
-		pool = NormalPool
-	case MagicTier:
-		pool = MagicPool
-	case RareTier:
-		pool = RarePool
-	case UniqueTier:
-		pool = UniquePool
-	}
-
-	item := choose(pool)
+	item := choose(NormalPool)
 
 	stat, exist := Stats[item]
 	if exist {
 		item.Damage = rand.IntN(stat.MaxDamage-stat.MinDamage+1) + stat.MinDamage
 		item.AttackSpeed = stat.AttackSpeed
 	}
-
+	for range bonusCount(roll) {
+		if rand.IntN(2) == 0 {
+			item.Damage++
+		} else {
+			item.AttackSpeed += 0.2
+		}
+	}
+	item.Tier = roll
+	item.Name = tierPrefix(roll) + item.Name
 	return item
 
 }
 
 func DropArmour() Armour {
+	tier := rollTier(Distributions)
 	pool := []Armour{LeatherVest, Chainmail, LeatherCap, IronHelm, TravelBelt, WarBelt, WoodenShield, IronShield}
 	armour := pool[rand.IntN(len(pool))]
 	if stats, exists := ArmourStats[armour]; exists {
 		armour.Defence = stats.Defence
 	}
+	for range bonusCount(tier) {
+		if rand.IntN(2) == 0 {
+			armour.Defence++
+		} else {
+			armour.Health += 2
+		}
+	}
+	armour.Tier = tier
+	armour.Name = tierPrefix(tier) + armour.Name
 	return armour
+}
+
+func bonusCount(tier ItemTier) int { return int(tier) }
+
+func tierPrefix(tier ItemTier) string {
+	switch tier {
+	case MagicTier:
+		return "Magic "
+	case RareTier:
+		return "Rare "
+	case UniqueTier:
+		return "Unique "
+	default:
+		return ""
+	}
 }
 
 var Distributions = map[ItemTier]int{

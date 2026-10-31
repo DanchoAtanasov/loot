@@ -3,6 +3,7 @@ package items
 type Armour struct {
 	Item
 	Defence int
+	Health  int
 	Slot    ArmourSlot
 }
 

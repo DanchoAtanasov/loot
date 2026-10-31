@@ -468,6 +468,7 @@ func pickupGearDrop(hero *player, drops []gearDrop) []gearDrop {
 	}
 	drop := drops[nearestIndex]
 	if drop.isArmour {
+		previousHealthBonus := armourHealthBonus(*hero)
 		switch drop.armour.Slot {
 		case items.HelmetSlot:
 			hero.helmet = drop.armour
@@ -479,6 +480,9 @@ func pickupGearDrop(hero *player, drops []gearDrop) []gearDrop {
 			hero.armour = drop.armour
 		}
 		hero.Armour = totalArmour(*hero)
+		healthBonusChange := armourHealthBonus(*hero) - previousHealthBonus
+		hero.MaxHealth += healthBonusChange
+		hero.Health = min(hero.Health, hero.MaxHealth)
 	} else {
 		hero.weapon = drop.weapon
 	}
@@ -520,6 +524,10 @@ func equippedArmourName(armour items.Armour) string {
 
 func totalArmour(hero player) int {
 	return hero.armour.Defence + hero.helmet.Defence + hero.belt.Defence + hero.offHand.Defence
+}
+
+func armourHealthBonus(hero player) int {
+	return hero.armour.Health + hero.helmet.Health + hero.belt.Health + hero.offHand.Health
 }
 
 func equippedArmourForSlot(hero player, slot items.ArmourSlot) items.Armour {
