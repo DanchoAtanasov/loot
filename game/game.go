@@ -510,6 +510,13 @@ func effectiveDamage(hero player) int {
 	return max(hero.Damage, 0) + max(hero.weapon.Damage, 0)
 }
 
+func weaponAttackSpeed(weapon items.Weapon) float64 {
+	if weapon.AttackSpeed <= 0 {
+		return 2 // unarmed attacks retain the original 500 ms cadence
+	}
+	return weapon.AttackSpeed
+}
+
 func weaponTierName(tier items.ItemTier) string {
 	switch tier {
 	case items.MagicTier:

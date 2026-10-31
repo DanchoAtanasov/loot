@@ -69,6 +69,7 @@ func DropItem() Weapon {
 	stat, exist := Stats[item]
 	if exist {
 		item.Damage = rand.IntN(stat.MaxDamage-stat.MinDamage+1) + stat.MinDamage
+		item.AttackSpeed = stat.AttackSpeed
 	}
 
 	return item

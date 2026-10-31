@@ -3,10 +3,12 @@ package game
 import (
 	"math"
 	"time"
+
+	"DanchoAtanasov/loot/items"
 )
 
 func resolveBattle(hero *player, foes []enemy, now time.Time) (int, []int) {
-	if hero.Health <= 0 || now.Sub(hero.lastHit) < 500*time.Millisecond {
+	if hero.Health <= 0 || now.Sub(hero.lastHit) < attackInterval(hero.weapon) {
 		return -1, nil
 	}
 	attackTarget := -1
@@ -45,6 +47,14 @@ func resolveBattle(hero *player, foes []enemy, now time.Time) (int, []int) {
 	hero.lastHit = now
 	hero.Health = max(hero.Health-incomingDamage, 0)
 	return attackTarget, defeated
+}
+
+func attackInterval(weapon items.Weapon) time.Duration {
+	attacksPerSecond := weapon.AttackSpeed
+	if attacksPerSecond <= 0 {
+		attacksPerSecond = 2 // unarmed cadence matches the original 500 ms interval
+	}
+	return time.Duration(float64(time.Second) / attacksPerSecond)
 }
 
 func enemyTouchesPlayer(foe enemy, playerX, playerY int) bool {
