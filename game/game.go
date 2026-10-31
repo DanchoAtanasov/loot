@@ -79,6 +79,7 @@ type player struct {
 	models.Player
 	weapon         items.Weapon
 	armour         items.Armour
+	potions        int
 	x, y           int
 	facing         byte
 	lastMove       time.Time
@@ -190,6 +191,7 @@ func Run() {
 	hero := player{
 		Player:   models.DefaultPlayer,
 		weapon:   items.Weapon{},
+		potions:  1,
 		x:        playerX,
 		y:        playerY,
 		facing:   's',
@@ -203,6 +205,7 @@ func Run() {
 	foes = append(foes, tank)
 	deathEffects := make([]enemyDeathEffect, 0)
 	pickups := make([]healthPickup, 0)
+	kills := 0
 	gearDrops := make([]gearDrop, 0)
 	showEquipment := false
 	paused := false
@@ -238,6 +241,10 @@ func Run() {
 			}
 			for _, index := range defeated {
 				foe := foes[index]
+				kills++
+				if kills%5 == 0 {
+					pickups = append(pickups, healthPickup{x: foe.x, y: foe.y})
+				}
 				if rand.IntN(100) < foe.Enemy.DropChance() {
 					dropX, dropY := weaponDropPosition(foe, hero, worldWidth, height)
 					drop := gearDrop{x: dropX, y: dropY}
@@ -317,6 +324,10 @@ func Run() {
 			}
 			if event.key == ' ' && event.pressed {
 				gearDrops = pickupGearDrop(&hero, gearDrops)
+				continue
+			}
+			if event.key == '1' && event.pressed {
+				usePotion(&hero)
 				continue
 			}
 			if event.tracked {
@@ -649,7 +660,10 @@ func drawHUD(grid [][]tile, hero player, foes []enemy, gearDrops []gearDrop) {
 	if len(grid) < 2 {
 		return
 	}
-	itemSegments := []hudSegment{{text: "DROP: none", color: "\x1b[38;2;184;204;221m"}, {text: "   [I: ITEMS / PAUSE]", color: "\x1b[38;2;232;193;104m"}}
+	itemSegments := []hudSegment{
+		{text: "DROP: none", color: "\x1b[38;2;184;204;221m"},
+		{text: "   [I: ITEMS / PAUSE]", color: "\x1b[38;2;232;193;104m"},
+	}
 	if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) {
 		if drop.isArmour {
 			itemSegments = []hudSegment{
@@ -668,6 +682,7 @@ func drawHUD(grid [][]tile, hero player, foes []enemy, gearDrops []gearDrop) {
 	if len(itemSegments) > 1 && itemSegments[0].text == "DROP: " {
 		itemSegments = append(itemSegments, hudSegment{text: "   [I: ITEMS / PAUSE]", color: "\x1b[38;2;232;193;104m"})
 	}
+	itemSegments = append([]hudSegment{{text: fmt.Sprintf("POTIONS %d [1: USE]   ", hero.potions), color: "\x1b[38;2;115;207;174m"}}, itemSegments...)
 	drawHUDLine(grid, 1, itemSegments)
 }
 
@@ -826,13 +841,22 @@ func collectHealthPickups(hero *player, pickups []healthPickup) []healthPickup {
 	remaining := pickups[:0]
 	for _, pickup := range pickups {
 		touching := abs(hero.x-pickup.x) <= 2 && abs(hero.y-pickup.y) <= 1
-		if touching && hero.Health < hero.MaxHealth {
-			hero.Health = min(hero.Health+10, hero.MaxHealth)
+		if touching {
+			hero.potions++
 			continue
 		}
 		remaining = append(remaining, pickup)
 	}
 	return remaining
+}
+
+func usePotion(hero *player) bool {
+	if hero.potions <= 0 || hero.Health >= hero.MaxHealth {
+		return false
+	}
+	hero.potions--
+	hero.Health = min(hero.Health+10, hero.MaxHealth)
+	return true
 }
 
 func weaponDropPosition(foe enemy, hero player, width, height int) (int, int) {
@@ -1715,7 +1739,7 @@ func keyFromCode(code int) rune {
 	if code == ' ' {
 		return ' '
 	}
-	if code >= 'a' && code <= 'z' {
+	if code >= 'a' && code <= 'z' || code >= '0' && code <= '9' {
 		return rune(code)
 	}
 	switch code {
