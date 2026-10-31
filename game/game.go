@@ -66,6 +66,7 @@ type enemy struct {
 	x, y       int
 	tank       bool
 	brute      bool
+	finalBoss  bool
 	nextMoveAt time.Time
 }
 
@@ -179,6 +180,7 @@ func Run() {
 	_, worldRight, _, _ := chamberBounds(worldWidth, height)
 	tank := newEnemy(true, false)
 	tank.x, tank.y = worldRight-3, playerY
+	tank.finalBoss = true
 	foes = append(foes, tank)
 	deathEffects := make([]enemyDeathEffect, 0)
 	pickups := make([]healthPickup, 0)
@@ -218,7 +220,7 @@ func Run() {
 			}
 			for _, index := range defeated {
 				foe := foes[index]
-				if rand.IntN(100) < 30 {
+				if foe.finalBoss || rand.IntN(100) < 30 {
 					dropX, dropY := weaponDropPosition(foe, hero, worldWidth, height)
 					drop := gearDrop{x: dropX, y: dropY}
 					if rand.IntN(2) == 0 {
@@ -341,7 +343,11 @@ func renderDungeon(hero player, width, height, worldWidth int, idleFrame bool, s
 		for x := left; x <= right; x++ {
 			border := (viewLeft+x == worldLeft || viewLeft+x == worldRight) || y == top || y == bottom
 			if border {
-				grid[y][x] = tile{'█', "\x1b[38;2;174;181;192m"}
+				wallColor := "\x1b[38;2;174;181;192m"
+				if viewLeft+x == worldRight {
+					wallColor = "\x1b[38;2;255;190;92m"
+				}
+				grid[y][x] = tile{'█', wallColor}
 			} else {
 				grid[y][x] = tile{'·', "\x1b[38;2;66;71;78m"}
 			}
