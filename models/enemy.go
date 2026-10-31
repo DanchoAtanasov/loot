@@ -30,7 +30,7 @@ var BruteEnemy = Enemy{
 }
 
 var TankEnemy = Enemy{
-	Health:           10,
+	Health:           50,
 	Damage:           1,
 	ExperienceOnKill: 150,
 	Rarity:           UniqueEnemyRarity,

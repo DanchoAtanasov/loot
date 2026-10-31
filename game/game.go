@@ -1592,14 +1592,6 @@ func playerBlockedByEnemy(x, y, previousX, previousY int, foes []enemy, effects 
 			return true
 		}
 	}
-	for _, effect := range effects {
-		if !deathEffectTouchesPlayer(effect, x, y) {
-			continue
-		}
-		if !deathEffectTouchesPlayer(effect, previousX, previousY) || deathEffectCenterDistance(effect, x, y) <= deathEffectCenterDistance(effect, previousX, previousY) {
-			return true
-		}
-	}
 	return false
 }
 
