@@ -193,12 +193,9 @@ func Run() {
 		facing:   's',
 		lastMove: time.Now(),
 	}
-	foes := spawnEnemyPacks(worldWidth, height, initialEnemyPackCount)
-	_, worldRight, _, _ := chamberBounds(worldWidth, height)
-	tank := newEnemy(true, false)
-	tank.x, tank.y = worldRight-3, playerY
-	tank.finalBoss = true
-	foes = append(foes, tank)
+	stage := 1
+	foes := spawnStageEnemies(worldWidth, height, stage, playerY)
+	stageTransitionUntil := time.Time{}
 	deathEffects := make([]enemyDeathEffect, 0)
 	pickups := make([]healthPickup, 0)
 	kills := 0
@@ -226,7 +223,23 @@ func Run() {
 
 		// Keep combat and world timers frozen while the game is paused.
 		now := time.Now()
-		if !paused {
+		stagePending := !stageTransitionUntil.IsZero()
+		if stagePending && !now.Before(stageTransitionUntil) {
+			stage++
+			left, _, top, bottom = chamberBounds(worldWidth, height)
+			hero.x, hero.y = keepPlayerInChamber(left+2, (top+bottom)/2, worldWidth, height)
+			hero.attackStarted = time.Time{}
+			bushes = scatterBushes(worldWidth, height)
+			pickups = nil
+			gearDrops = nil
+			deathEffects = nil
+			foes = spawnStageEnemies(worldWidth, height, stage, hero.y)
+			stageTransitionUntil = time.Time{}
+			stagePending = false
+			hero.lastMove = now
+			lastStep = now
+		}
+		if !paused && !stagePending {
 			for i := range foes {
 				foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, worldWidth, height, foes[i].tank)
 			}
@@ -235,8 +248,10 @@ func Run() {
 				hero.facing = facingEnemy(hero, foes[attackTarget])
 				hero.attackStarted = now
 			}
+			bossDefeated := false
 			for _, index := range defeated {
 				foe := foes[index]
+				bossDefeated = bossDefeated || foe.finalBoss
 				kills++
 				if kills%5 == 0 {
 					pickups = append(pickups, healthPickup{x: foe.x, y: foe.y})
@@ -268,6 +283,10 @@ func Run() {
 				}
 			}
 			foes = alive
+			if bossDefeated {
+				clear(heldKeys)
+				stageTransitionUntil = now.Add(3 * time.Second)
+			}
 			pickups = collectHealthPickups(&hero, pickups)
 
 			// Check if character should level up
@@ -292,7 +311,11 @@ func Run() {
 		if !hero.attackStarted.IsZero() && time.Since(hero.attackStarted) < 240*time.Millisecond {
 			swingFrame = int(time.Since(hero.attackStarted) / (60 * time.Millisecond))
 		}
-		fmt.Print(renderDungeon(hero, width, height, worldWidth, runningFrame, swingFrame, foes, pickups, gearDrops, deathEffects, bushes, showEquipment))
+		transitionSeconds := 0
+		if !stageTransitionUntil.IsZero() {
+			transitionSeconds = int(math.Ceil(time.Until(stageTransitionUntil).Seconds()))
+		}
+		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, bushes, showEquipment))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -313,7 +336,7 @@ func Run() {
 				}
 				continue
 			}
-			if paused {
+			if paused || !stageTransitionUntil.IsZero() {
 				continue
 			}
 			if event.key == ' ' && event.pressed {
@@ -333,7 +356,7 @@ func Run() {
 				hero.lastMove = time.Now()
 			}
 		case now := <-ticker.C:
-			if !paused && hero.Health > 0 && now.Sub(lastStep) >= 40*time.Millisecond {
+			if !paused && stageTransitionUntil.IsZero() && hero.Health > 0 && now.Sub(lastStep) >= 40*time.Millisecond {
 				// Advance held movement in single-cell increments. Rendering and the
 				// run cycle continue independently at 60 fps between movement ticks.
 				nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, 1, worldWidth, height, foes, deathEffects)
@@ -348,7 +371,7 @@ func Run() {
 				stepEnemyPacks(foes, hero.x, hero.y, worldWidth, height, time.Now())
 			}
 		case <-pickupTicker.C:
-			if !paused {
+			if !paused && stageTransitionUntil.IsZero() {
 				pickups = append(pickups, spawnHealthPickup(worldWidth, height))
 			}
 		}
@@ -513,21 +536,38 @@ func weaponTierColor(tier items.ItemTier) string {
 	}
 }
 
+func spawnStageEnemies(width, height, stage, bossY int) []enemy {
+	foes := spawnEnemyPacksForStage(width, height, initialEnemyPackCount, stage)
+	_, worldRight, _, _ := chamberBounds(width, height)
+	boss := newEnemyForStage(true, false, stage)
+	boss.x, boss.y = worldRight-3, bossY
+	boss.finalBoss = true
+	return append(foes, boss)
+}
+
 func spawnEnemyPacks(width, height, count int) []enemy {
+	return spawnEnemyPacksForStage(width, height, count, 1)
+}
+
+func spawnEnemyPacksForStage(width, height, count, stage int) []enemy {
 	foes := make([]enemy, 0, count*3)
 	for i := 0; i < count; i++ {
-		foes = append(foes, spawnEnemyPack(width, height)...)
+		foes = append(foes, spawnEnemyPackForStage(width, height, stage)...)
 	}
 	return foes
 }
 
 func spawnEnemyPack(width, height int) []enemy {
+	return spawnEnemyPackForStage(width, height, 1)
+}
+
+func spawnEnemyPackForStage(width, height, stage int) []enemy {
 	packSize := 2 + rand.IntN(2)
 	pack := make([]enemy, 0, packSize)
 	for i := 0; i < packSize; i++ {
 		tank := false
 		brute := rand.IntN(4) == 0
-		pack = append(pack, newEnemy(tank, brute))
+		pack = append(pack, newEnemyForStage(tank, brute, stage))
 	}
 
 	pack[0].x, pack[0].y = randomPackAnchor(width, height, pack[0].tank)
@@ -609,12 +649,19 @@ func nearestEnemyDistance(x, y int, pack []enemy) int {
 }
 
 func newEnemy(tank, brute bool) enemy {
+	return newEnemyForStage(tank, brute, 1)
+}
+
+func newEnemyForStage(tank, brute bool, stage int) enemy {
 	foe := enemy{Enemy: models.DefaultEnemy, tank: tank, brute: brute}
 	if tank {
 		foe.Enemy = models.TankEnemy
 	} else if brute {
 		foe.Enemy = models.BruteEnemy
 	}
+	stage = max(stage, 1)
+	foe.Damage += (stage - 1) / 2
+	foe.ExperienceOnKill += (foe.ExperienceOnKill*(stage-1) + 4) / 5
 	return foe
 }
 

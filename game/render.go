@@ -49,7 +49,7 @@ func renderLoadingScreen(width, height int) string {
 	return frame.String()
 }
 
-func renderDungeon(hero player, width, height, worldWidth, runningFrame, swingFrame int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, bushes []bush, showEquipment bool) string {
+func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, bushes []bush, showEquipment bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -105,7 +105,7 @@ func renderDungeon(hero player, width, height, worldWidth, runningFrame, swingFr
 			}
 		}
 	}
-	drawHUD(grid, hero, foes, gearDrops)
+	drawHUD(grid, hero, stage, foes, gearDrops)
 	visibleEffects := make([]enemyDeathEffect, 0, len(deathEffects))
 	for _, effect := range deathEffects {
 		effect.x -= viewLeft
@@ -128,6 +128,9 @@ func renderDungeon(hero player, width, height, worldWidth, runningFrame, swingFr
 	}
 	if showEquipment {
 		drawEquipmentPanel(grid, hero)
+	}
+	if transitionSeconds > 0 {
+		drawStageTransition(grid, transitionSeconds)
 	}
 
 	var frame bytes.Buffer
@@ -202,6 +205,33 @@ func renderDungeon(hero player, width, height, worldWidth, runningFrame, swingFr
 	heroScreenX := hero.x - viewLeft
 	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(hero.y-heroImageRows/2, 1), max(heroScreenX-heroImageCols/2, 1), imageID, heroImageCols, heroImageRows))
 	return frame.String()
+}
+
+func drawStageTransition(grid [][]tile, seconds int) {
+	if len(grid) == 0 || len(grid[0]) == 0 {
+		return
+	}
+	lines := []string{"STAGE CLEARED", fmt.Sprintf("NEXT STAGE IN %d", seconds)}
+	centerY := len(grid) / 2
+	for index, line := range lines {
+		row := centerY + index
+		if index == 0 {
+			row--
+		}
+		if row < 2 || row >= len(grid) {
+			continue
+		}
+		column := max((len(grid[row])-len(line))/2, 0)
+		color := "\x1b[38;2;236;87;87m"
+		if index == 1 {
+			color = "\x1b[38;2;190;190;200m"
+		}
+		for offset, glyph := range line {
+			if column+offset < len(grid[row]) {
+				grid[row][column+offset] = tile{glyph, color}
+			}
+		}
+	}
 }
 
 func enemySpriteSize(foe enemy) (imageID, cols, rows int) {
@@ -327,7 +357,7 @@ func kittyTransmitHero(pngData []byte, imageID int) string {
 	return out.String()
 }
 
-func drawHUD(grid [][]tile, hero player, foes []enemy, gearDrops []gearDrop) {
+func drawHUD(grid [][]tile, hero player, stage int, foes []enemy, gearDrops []gearDrop) {
 	segments := []hudSegment{
 		{fmt.Sprintf("HP %d/%d", hero.Health, hero.MaxHealth), "\x1b[38;2;232;103;103m"},
 		{"   ", ""},
@@ -342,6 +372,8 @@ func drawHUD(grid [][]tile, hero player, foes []enemy, gearDrops []gearDrop) {
 		{fmt.Sprintf("XP %d", hero.Experience), "\x1b[38;2;232;193;104m"},
 		{"   ", ""},
 		{fmt.Sprintf("LEVEL %d", hero.Level), "\x1b[38;2;232;193;104m"},
+		{"   ", ""},
+		{fmt.Sprintf("STAGE %d", stage), "\x1b[38;2;173;151;218m"},
 		{"   ", ""},
 		{fmt.Sprintf("ENEMIES %d", len(foes)), "\x1b[38;2;220;120;103m"},
 	}
