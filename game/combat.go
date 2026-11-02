@@ -109,6 +109,48 @@ func advanceDash(hero *player, foes []enemy, width, height int) (int, int, int, 
 	return x, y, hero.dashRemaining, defeated
 }
 
+func advanceFlyingSlashes(slashes []flyingSlash, foes []enemy, width, height int, hero *player) ([]flyingSlash, []int) {
+	defeated := make([]int, 0)
+	active := slashes[:0]
+	for i := range slashes {
+		slash := slashes[i]
+		for step := 0; step < 3 && slash.remaining > 0; step++ {
+			slash.distance++
+			slash.frame++
+			wave := [...]int{0, 1, 0, -1}[slash.frame%4]
+			perpX, perpY := -sign(slash.dy), sign(slash.dx)
+			nextX := slash.startX + sign(slash.dx)*slash.distance + perpX*wave
+			nextY := slash.startY + sign(slash.dy)*slash.distance + perpY*wave
+			nextX, nextY = keepPlayerInChamber(nextX, nextY, width, height)
+			if nextX == slash.x && nextY == slash.y {
+				slash.remaining = 0
+				break
+			}
+			slash.x, slash.y = nextX, nextY
+			slash.remaining--
+			for j := range foes {
+				if !foes[j].dashTagged && foes[j].Health > 0 && enemyTouchesPlayer(foes[j], slash.x, slash.y) {
+					foes[j].dashTagged = true
+					foes[j].Health -= effectiveDamage(*hero)
+					if foes[j].Health <= 0 {
+						hero.Experience += foes[j].ExperienceOnKill
+					}
+				}
+			}
+		}
+		if slash.remaining > 0 {
+			active = append(active, slash)
+		}
+	}
+	for i := range foes {
+		if foes[i].dashTagged && foes[i].Health <= 0 {
+			defeated = append(defeated, i)
+			foes[i].dashTagged = false
+		}
+	}
+	return active, defeated
+}
+
 func attackInterval(weapon items.Weapon) time.Duration {
 	attacksPerSecond := weapon.AttackSpeed
 	if attacksPerSecond <= 0 {

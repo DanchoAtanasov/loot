@@ -72,21 +72,22 @@ type enemy struct {
 
 type player struct {
 	models.Player
-	weapon            items.Weapon
-	armour            items.Armour // chest slot
-	helmet            items.Armour
-	belt              items.Armour
-	offHand           items.Armour
-	potions           int
-	x, y              int
-	facing            byte
-	lastMove          time.Time
-	lastHit           time.Time
-	attackStarted     time.Time
-	dashDX, dashDY    int
-	dashRemaining     int
-	dashCooldownUntil time.Time
-	levelUpStarted    time.Time
+	weapon             items.Weapon
+	armour             items.Armour // chest slot
+	helmet             items.Armour
+	belt               items.Armour
+	offHand            items.Armour
+	potions            int
+	x, y               int
+	facing             byte
+	lastMove           time.Time
+	lastHit            time.Time
+	attackStarted      time.Time
+	dashDX, dashDY     int
+	dashRemaining      int
+	dashCooldownUntil  time.Time
+	slashCooldownUntil time.Time
+	levelUpStarted     time.Time
 }
 
 type healthPickup struct {
@@ -103,6 +104,15 @@ type enemyDeathEffect struct {
 	x, y      int
 	tank      bool
 	startedAt time.Time
+}
+
+type flyingSlash struct {
+	x, y           int
+	startX, startY int
+	dx, dy         int
+	remaining      int
+	frame          int
+	distance       int
 }
 
 type gearDrop struct {
@@ -204,6 +214,7 @@ func Run() {
 	foes := spawnStageEnemies(worldWidth, height, stage, playerY)
 	stageTransitionUntil := time.Time{}
 	deathEffects := make([]enemyDeathEffect, 0)
+	flyingSlashes := make([]flyingSlash, 0, 1)
 	pickups := make([]healthPickup, 0)
 	kills := 0
 	gearDrops := make([]gearDrop, 0)
@@ -240,6 +251,7 @@ func Run() {
 			pickups = nil
 			gearDrops = nil
 			deathEffects = nil
+			flyingSlashes = nil
 			foes = spawnStageEnemies(worldWidth, height, stage, hero.y)
 			stageTransitionUntil = time.Time{}
 			stagePending = false
@@ -322,7 +334,7 @@ func Run() {
 		if !stageTransitionUntil.IsZero() {
 			transitionSeconds = int(math.Ceil(time.Until(stageTransitionUntil).Seconds()))
 		}
-		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, bushes, showEquipment))
+		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, showEquipment))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -366,6 +378,19 @@ func Run() {
 				hero.attackStarted = time.Now()
 				continue
 			}
+			if (event.key == 'x' || event.key == 'X') && event.pressed && hero.Health > 0 {
+				if !time.Now().Before(hero.slashCooldownUntil) {
+					dx, dy := dashDirection(hero.facing)
+					dx, dy = sign(dx), sign(dy)
+					hero.slashCooldownUntil = time.Now().Add(time.Second)
+					for i := range foes {
+						foes[i].dashTagged = false
+					}
+					startX, startY := hero.x+dx*2, hero.y+dy*2
+					flyingSlashes = append(flyingSlashes, flyingSlash{x: startX, y: startY, startX: startX, startY: startY, dx: dx, dy: dy, remaining: 36})
+				}
+				continue
+			}
 			if event.tracked {
 				heldKeys[event.key] = event.pressed
 				continue
@@ -375,6 +400,24 @@ func Run() {
 				hero.lastMove = time.Now()
 			}
 		case now := <-ticker.C:
+			if !paused && stageTransitionUntil.IsZero() {
+				var defeated []int
+				flyingSlashes, defeated = advanceFlyingSlashes(flyingSlashes, foes, worldWidth, height, &hero)
+				bossDefeated := false
+				for _, index := range defeated {
+					foe := foes[index]
+					bossDefeated = bossDefeated || foe.finalBoss
+					kills++
+					if kills%5 == 0 {
+						pickups = append(pickups, healthPickup{x: foe.x, y: foe.y})
+					}
+					deathEffects = append(deathEffects, enemyDeathEffect{x: foe.x, y: foe.y, tank: foe.tank, startedAt: now})
+				}
+				if bossDefeated {
+					clear(heldKeys)
+					stageTransitionUntil = now.Add(3 * time.Second)
+				}
+			}
 			if !paused && stageTransitionUntil.IsZero() && hero.Health > 0 && now.Sub(lastStep) >= 40*time.Millisecond {
 				if hero.dashRemaining > 0 {
 					var defeated []int
