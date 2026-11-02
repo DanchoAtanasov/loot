@@ -213,6 +213,16 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 			frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[1;38;2;255;224;150m%c\x1b[0m", y, x+1, mark.glyph))
 		}
 	}
+	for _, foe := range foes {
+		if foe.hooked && foe.Health > 0 {
+			foeX, foeY := foe.x, foe.y
+			if foe.tank {
+				foeX++
+				foeY++
+			}
+			renderHookLine(&frame, hero.x-viewLeft, hero.y, foeX-viewLeft, foeY, width, height)
+		}
+	}
 	frame.WriteString(renderDashOverlay(hero, width, height))
 	return frame.String()
 }
@@ -230,10 +240,52 @@ func renderDashOverlay(hero player, width, height int) string {
 		slashLabel = fmt.Sprintf("[X] SLASH %.1fs", remaining.Seconds())
 		slashColor = "\x1b[38;2;160;166;174m"
 	}
-	label := dashLabel + "   " + slashLabel
+	hookLabel := "[C] HOOK READY"
+	hookColor := "\x1b[38;2;115;207;174m"
+	if remaining := time.Until(hero.hookCooldownUntil); remaining > 0 {
+		hookLabel = fmt.Sprintf("[C] HOOK %.1fs", remaining.Seconds())
+		hookColor = "\x1b[38;2;160;166;174m"
+	}
+	label := dashLabel + "   " + slashLabel + "   " + hookLabel
 	// Place the status on the last terminal row as a fixed screen overlay.
 	column := max((width-len([]rune(label)))/2+1, 1)
-	return fmt.Sprintf("\x1b[%d;%dH%s%s   %s\x1b[0m", max(height, 1), column, dashColor, dashLabel, slashColor+slashLabel)
+	return fmt.Sprintf("\x1b[%d;%dH%s%s   %s   %s%s\x1b[0m", max(height, 1), column, dashColor, dashLabel, slashColor, slashLabel, hookColor+hookLabel)
+}
+
+func renderHookLine(frame *bytes.Buffer, heroX, heroY, foeX, foeY, width, height int) {
+	dx, dy := abs(foeX-heroX), abs(foeY-heroY)
+	stepX, stepY := sign(foeX-heroX), sign(foeY-heroY)
+	x, y := heroX, heroY
+	error := dx - dy
+	segment := 0
+	for x != foeX || y != foeY {
+		doubleError := 2 * error
+		if doubleError > -dy {
+			error -= dy
+			x += stepX
+		}
+		if doubleError < dx {
+			error += dx
+			y += stepY
+		}
+		segment++
+		if x < 0 || x >= width || y < 1 || y > height {
+			continue
+		}
+		glyph := '-'
+		if stepX == 0 {
+			glyph = '|'
+		} else if stepY != 0 {
+			glyph = '/'
+		}
+		if segment%3 == 0 {
+			glyph = '~'
+		}
+		if x == foeX && y == foeY {
+			glyph = '>'
+		}
+		frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[1;38;2;224;194;132m%c\x1b[0m", y, x+1, glyph))
+	}
 }
 
 type slashMark struct {

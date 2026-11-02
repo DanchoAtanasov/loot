@@ -151,6 +151,63 @@ func advanceFlyingSlashes(slashes []flyingSlash, foes []enemy, width, height int
 	return active, defeated
 }
 
+func hookTarget(hero player, foes []enemy, maxRange int) int {
+	dx, dy := dashDirection(hero.facing)
+	faceX, faceY := sign(dx), sign(dy)
+	best, bestDistance := -1, maxRange+1
+	for i, foe := range foes {
+		if foe.Health <= 0 || foe.hooked {
+			continue
+		}
+		x, y := foe.x, foe.y
+		if foe.tank {
+			x++
+			y++
+		}
+		offsetX, offsetY := x-hero.x, y-hero.y
+		distance := offsetX*faceX + offsetY*faceY
+		if distance <= 0 || distance > maxRange {
+			continue
+		}
+		if abs(offsetX*faceY-offsetY*faceX) > 2 {
+			continue
+		}
+		if distance < bestDistance {
+			best, bestDistance = i, distance
+		}
+	}
+	return best
+}
+
+func advanceHook(foes []enemy, hero player, width, height int) {
+	for i := range foes {
+		foe := &foes[i]
+		if !foe.hooked {
+			continue
+		}
+		if foe.Health <= 0 || enemyTouchesPlayer(*foe, hero.x, hero.y) {
+			foe.hooked = false
+			continue
+		}
+		for step := 0; step < 2; step++ {
+			dx, dy := sign(hero.x-foe.x), sign(hero.y-foe.y)
+			if dx != 0 {
+				dx *= horizontalMovementScale()
+			}
+			nextX, nextY := keepEnemyInChamber(foe.x+dx, foe.y+dy, width, height, foe.tank)
+			if nextX == foe.x && nextY == foe.y {
+				foe.hooked = false
+				break
+			}
+			foe.x, foe.y = nextX, nextY
+			if enemyTouchesPlayer(*foe, hero.x, hero.y) {
+				foe.hooked = false
+				break
+			}
+		}
+	}
+}
+
 func attackInterval(weapon items.Weapon) time.Duration {
 	attacksPerSecond := weapon.AttackSpeed
 	if attacksPerSecond <= 0 {

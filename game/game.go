@@ -67,6 +67,7 @@ type enemy struct {
 	brute      bool
 	finalBoss  bool
 	dashTagged bool
+	hooked     bool
 	nextMoveAt time.Time
 }
 
@@ -87,6 +88,7 @@ type player struct {
 	dashRemaining      int
 	dashCooldownUntil  time.Time
 	slashCooldownUntil time.Time
+	hookCooldownUntil  time.Time
 	levelUpStarted     time.Time
 }
 
@@ -391,6 +393,15 @@ func Run() {
 				}
 				continue
 			}
+			if (event.key == 'c' || event.key == 'C') && event.pressed && hero.Health > 0 {
+				if !time.Now().Before(hero.hookCooldownUntil) {
+					if target := hookTarget(hero, foes, 28); target >= 0 {
+						foes[target].hooked = true
+						hero.hookCooldownUntil = time.Now().Add(2 * time.Second)
+					}
+				}
+				continue
+			}
 			if event.tracked {
 				heldKeys[event.key] = event.pressed
 				continue
@@ -401,6 +412,7 @@ func Run() {
 			}
 		case now := <-ticker.C:
 			if !paused && stageTransitionUntil.IsZero() {
+				advanceHook(foes, hero, worldWidth, height)
 				var defeated []int
 				flyingSlashes, defeated = advanceFlyingSlashes(flyingSlashes, foes, worldWidth, height, &hero)
 				bossDefeated := false
@@ -812,7 +824,7 @@ func scatterBushes(width, height int) []bush {
 func stepEnemyPacks(foes []enemy, heroX, heroY, width, height int, now time.Time) {
 	for i := range foes {
 		foe := &foes[i]
-		if foe.Health <= 0 || now.Before(foe.nextMoveAt) {
+		if foe.Health <= 0 || foe.hooked || now.Before(foe.nextMoveAt) {
 			continue
 		}
 		centerX, centerY := foe.x, foe.y
