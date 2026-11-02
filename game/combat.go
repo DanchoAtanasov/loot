@@ -49,6 +49,66 @@ func resolveBattle(hero *player, foes []enemy, now time.Time) (int, []int) {
 	return attackTarget, defeated
 }
 
+// dashDirection returns the world-space movement vector for the current facing.
+func dashDirection(facing byte) (int, int) {
+	dx, dy := 0, 0
+	switch facing {
+	case 'w':
+		dy = -1
+	case 's':
+		dy = 1
+	case 'a':
+		dx = -1
+	case 'd':
+		dx = 1
+	case 'q':
+		dx, dy = -1, -1
+	case 'e':
+		dx, dy = 1, -1
+	case 'z':
+		dx, dy = -1, 1
+	case 'c':
+		dx, dy = 1, 1
+	default:
+		dy = 1
+	}
+	if dx != 0 {
+		dx *= horizontalMovementScale()
+	}
+	return dx, dy
+}
+
+func advanceDash(hero *player, foes []enemy, width, height int) (int, int, int, []int) {
+	x, y := hero.x, hero.y
+	// Cover three world cells per movement tick, checking every cell on the
+	// segment so enemies along the dash path are hit even at high speed.
+	for step := 0; step < 3 && hero.dashRemaining > 0; step++ {
+		nextX, nextY := keepPlayerInChamber(x+hero.dashDX, y+hero.dashDY, width, height)
+		if nextX == x && nextY == y {
+			hero.dashRemaining = 0
+			break
+		}
+		x, y = nextX, nextY
+		hero.dashRemaining--
+		for i := range foes {
+			if !foes[i].dashTagged && foes[i].Health > 0 && enemyTouchesPlayer(foes[i], x, y) {
+				foes[i].dashTagged = true
+				foes[i].Health -= effectiveDamage(*hero)
+				if foes[i].Health <= 0 {
+					hero.Experience += foes[i].ExperienceOnKill
+				}
+			}
+		}
+	}
+	defeated := make([]int, 0)
+	for i := range foes {
+		if foes[i].dashTagged && foes[i].Health <= 0 {
+			defeated = append(defeated, i)
+		}
+	}
+	return x, y, hero.dashRemaining, defeated
+}
+
 func attackInterval(weapon items.Weapon) time.Duration {
 	attacksPerSecond := weapon.AttackSpeed
 	if attacksPerSecond <= 0 {

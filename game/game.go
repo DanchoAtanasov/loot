@@ -66,23 +66,27 @@ type enemy struct {
 	tank       bool
 	brute      bool
 	finalBoss  bool
+	dashTagged bool
 	nextMoveAt time.Time
 }
 
 type player struct {
 	models.Player
-	weapon         items.Weapon
-	armour         items.Armour // chest slot
-	helmet         items.Armour
-	belt           items.Armour
-	offHand        items.Armour
-	potions        int
-	x, y           int
-	facing         byte
-	lastMove       time.Time
-	lastHit        time.Time
-	attackStarted  time.Time
-	levelUpStarted time.Time
+	weapon            items.Weapon
+	armour            items.Armour // chest slot
+	helmet            items.Armour
+	belt              items.Armour
+	offHand           items.Armour
+	potions           int
+	x, y              int
+	facing            byte
+	lastMove          time.Time
+	lastHit           time.Time
+	attackStarted     time.Time
+	dashDX, dashDY    int
+	dashRemaining     int
+	dashCooldownUntil time.Time
+	levelUpStarted    time.Time
 }
 
 type healthPickup struct {
@@ -350,6 +354,18 @@ func Run() {
 				usePotion(&hero)
 				continue
 			}
+			if (event.key == 'z' || event.key == 'Z') && event.pressed && hero.Health > 0 {
+				if hero.dashRemaining == 0 && !time.Now().Before(hero.dashCooldownUntil) {
+					hero.dashDX, hero.dashDY = dashDirection(hero.facing)
+					hero.dashRemaining = 12
+					hero.dashCooldownUntil = time.Now().Add(5 * time.Second)
+					for i := range foes {
+						foes[i].dashTagged = false
+					}
+				}
+				hero.attackStarted = time.Now()
+				continue
+			}
 			if event.tracked {
 				heldKeys[event.key] = event.pressed
 				continue
@@ -360,12 +376,26 @@ func Run() {
 			}
 		case now := <-ticker.C:
 			if !paused && stageTransitionUntil.IsZero() && hero.Health > 0 && now.Sub(lastStep) >= 40*time.Millisecond {
-				// Advance held movement in single-cell increments. Rendering and the
-				// run cycle continue independently at 60 fps between movement ticks.
-				nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, 1, worldWidth, height, foes, deathEffects)
-				if nextX != hero.x || nextY != hero.y {
-					hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
+				if hero.dashRemaining > 0 {
+					var defeated []int
+					hero.x, hero.y, hero.dashRemaining, defeated = advanceDash(&hero, foes, worldWidth, height)
+					for _, index := range defeated {
+						foe := foes[index]
+						kills++
+						if kills%5 == 0 {
+							pickups = append(pickups, healthPickup{x: foe.x, y: foe.y})
+						}
+						deathEffects = append(deathEffects, enemyDeathEffect{x: foe.x, y: foe.y, tank: foe.tank, startedAt: now})
+					}
 					hero.lastMove = now
+				} else {
+					// Advance held movement in single-cell increments. Rendering and the
+					// run cycle continue independently at 60 fps between movement ticks.
+					nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, 1, worldWidth, height, foes, deathEffects)
+					if nextX != hero.x || nextY != hero.y {
+						hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
+						hero.lastMove = now
+					}
 				}
 				lastStep = now
 			}

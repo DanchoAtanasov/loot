@@ -204,7 +204,20 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 	}
 	heroScreenX := hero.x - viewLeft
 	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(hero.y-heroImageRows/2, 1), max(heroScreenX-heroImageCols/2, 1), imageID, heroImageCols, heroImageRows))
+	frame.WriteString(renderDashOverlay(hero, width, height))
 	return frame.String()
+}
+
+func renderDashOverlay(hero player, width, height int) string {
+	label := "⚡ [Z] DASH READY"
+	color := "\x1b[38;2;115;207;174m"
+	if remaining := time.Until(hero.dashCooldownUntil); remaining > 0 {
+		label = fmt.Sprintf("⚡ [Z] DASH %.1fs", remaining.Seconds())
+		color = "\x1b[38;2;160;166;174m"
+	}
+	// Place the status on the last terminal row as a fixed screen overlay.
+	column := max((width-len([]rune(label)))/2+1, 1)
+	return fmt.Sprintf("\x1b[%d;%dH%s%s\x1b[0m", max(height, 1), column, color, label)
 }
 
 func drawStageTransition(grid [][]tile, seconds int) {
