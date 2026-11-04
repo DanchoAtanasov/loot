@@ -208,6 +208,38 @@ func advanceHook(foes []enemy, hero player, width, height int) {
 	}
 }
 
+func enemyIsOnScreen(foe enemy, viewLeft, width, height int) bool {
+	x, y := foe.x, foe.y
+	if foe.tank {
+		x++
+		y++
+	}
+	return x >= viewLeft && x < viewLeft+width && y >= 1 && y < height
+}
+
+func advanceUltimate(foes []enemy, hero player, width, height int) {
+	for i := range foes {
+		foe := &foes[i]
+		if !foe.ultimateTarget || foe.Health <= 0 || enemyTouchesPlayer(*foe, hero.x, hero.y) {
+			continue
+		}
+		for step := 0; step < 2; step++ {
+			dx, dy := sign(hero.x-foe.x), sign(hero.y-foe.y)
+			if dx != 0 {
+				dx *= horizontalMovementScale()
+			}
+			nextX, nextY := keepEnemyInChamber(foe.x+dx, foe.y+dy, width, height, foe.tank)
+			if nextX == foe.x && nextY == foe.y {
+				break
+			}
+			foe.x, foe.y = nextX, nextY
+			if enemyTouchesPlayer(*foe, hero.x, hero.y) {
+				break
+			}
+		}
+	}
+}
+
 func attackInterval(weapon items.Weapon, attackSpeedBonus float64) time.Duration {
 	attacksPerSecond := weapon.AttackSpeed
 	if attacksPerSecond <= 0 {

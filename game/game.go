@@ -62,35 +62,39 @@ type hudSegment struct {
 
 type enemy struct {
 	models.Enemy
-	x, y       int
-	tank       bool
-	brute      bool
-	finalBoss  bool
-	dashTagged bool
-	hooked     bool
-	nextMoveAt time.Time
+	x, y           int
+	tank           bool
+	brute          bool
+	finalBoss      bool
+	dashTagged     bool
+	hooked         bool
+	ultimateTarget bool
+	nextMoveAt     time.Time
 }
 
 type player struct {
 	models.Player
-	weapon              items.Weapon
-	armour              items.Armour // chest slot
-	helmet              items.Armour
-	belt                items.Armour
-	offHand             items.Armour
-	potions             int
-	x, y                int
-	facing              byte
-	lastMove            time.Time
-	lastHit             time.Time
-	attackStarted       time.Time
-	pendingLevelChoices int
-	dashDX, dashDY      int
-	dashRemaining       int
-	dashCooldownUntil   time.Time
-	slashCooldownUntil  time.Time
-	hookCooldownUntil   time.Time
-	levelUpStarted      time.Time
+	weapon                items.Weapon
+	armour                items.Armour // chest slot
+	helmet                items.Armour
+	belt                  items.Armour
+	offHand               items.Armour
+	potions               int
+	x, y                  int
+	facing                byte
+	lastMove              time.Time
+	lastHit               time.Time
+	attackStarted         time.Time
+	pendingLevelChoices   int
+	dashDX, dashDY        int
+	dashRemaining         int
+	dashCooldownUntil     time.Time
+	slashCooldownUntil    time.Time
+	hookCooldownUntil     time.Time
+	ultimateStarted       time.Time
+	ultimateUntil         time.Time
+	ultimateCooldownUntil time.Time
+	levelUpStarted        time.Time
 }
 
 type healthPickup struct {
@@ -261,6 +265,12 @@ func Run() {
 			hero.lastMove = now
 			lastStep = now
 		}
+		if !hero.ultimateUntil.IsZero() && (!now.Before(hero.ultimateUntil) || hero.Health <= 0) {
+			hero.ultimateUntil = time.Time{}
+			for i := range foes {
+				foes[i].ultimateTarget = false
+			}
+		}
 		if !paused && !stagePending && hero.pendingLevelChoices == 0 {
 			for i := range foes {
 				foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, worldWidth, height, foes[i].tank)
@@ -335,7 +345,9 @@ func Run() {
 			runAnimationStarted = time.Time{}
 		}
 		swingFrame := -1
-		if !hero.attackStarted.IsZero() && time.Since(hero.attackStarted) < 240*time.Millisecond {
+		if now.Before(hero.ultimateUntil) {
+			swingFrame = int(time.Since(hero.ultimateStarted)/(60*time.Millisecond)) % 4
+		} else if !hero.attackStarted.IsZero() && time.Since(hero.attackStarted) < 240*time.Millisecond {
 			swingFrame = int(time.Since(hero.attackStarted) / (60 * time.Millisecond))
 		}
 		transitionSeconds := 0
@@ -416,6 +428,29 @@ func Run() {
 				}
 				continue
 			}
+			if (event.key == 'v' || event.key == 'V') && event.pressed && hero.Health > 0 {
+				if hero.ultimateUntil.IsZero() && !time.Now().Before(hero.ultimateCooldownUntil) {
+					now := time.Now()
+					hero.ultimateStarted = now
+					hero.ultimateUntil = now.Add(4 * time.Second)
+					hero.ultimateCooldownUntil = now.Add(20 * time.Second)
+					hero.dashRemaining = 0
+					hero.lastMove = time.Time{}
+					clear(heldKeys)
+					worldLeft, worldRight, _, _ := chamberBounds(worldWidth, height)
+					viewLeft := min(max(hero.x-width/2, worldLeft), max(worldLeft, worldRight-width+1))
+					for i := range foes {
+						foes[i].ultimateTarget = enemyIsOnScreen(foes[i], viewLeft, width, height)
+						if foes[i].ultimateTarget {
+							foes[i].hooked = false
+						}
+					}
+				}
+				continue
+			}
+			if !hero.ultimateUntil.IsZero() && time.Now().Before(hero.ultimateUntil) {
+				continue
+			}
 			if event.tracked {
 				heldKeys[event.key] = event.pressed
 				continue
@@ -445,7 +480,9 @@ func Run() {
 				}
 			}
 			if !paused && stageTransitionUntil.IsZero() && hero.pendingLevelChoices == 0 && hero.Health > 0 && now.Sub(lastStep) >= 40*time.Millisecond {
-				if hero.dashRemaining > 0 {
+				if now.Before(hero.ultimateUntil) {
+					advanceUltimate(foes, hero, worldWidth, height)
+				} else if hero.dashRemaining > 0 {
 					var defeated []int
 					hero.x, hero.y, hero.dashRemaining, defeated = advanceDash(&hero, foes, worldWidth, height)
 					bossDefeated := false
@@ -476,7 +513,7 @@ func Run() {
 				lastStep = now
 			}
 		case <-enemyTicker.C:
-			if !paused && hero.pendingLevelChoices == 0 {
+			if !paused && hero.pendingLevelChoices == 0 && !time.Now().Before(hero.ultimateUntil) {
 				stepEnemyPacks(foes, hero.x, hero.y, worldWidth, height, time.Now())
 			}
 		case <-pickupTicker.C:
@@ -849,7 +886,7 @@ func scatterBushes(width, height int) []bush {
 func stepEnemyPacks(foes []enemy, heroX, heroY, width, height int, now time.Time) {
 	for i := range foes {
 		foe := &foes[i]
-		if foe.Health <= 0 || foe.hooked || now.Before(foe.nextMoveAt) {
+		if foe.Health <= 0 || foe.hooked || foe.ultimateTarget || now.Before(foe.nextMoveAt) {
 			continue
 		}
 		centerX, centerY := foe.x, foe.y

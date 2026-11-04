@@ -271,10 +271,19 @@ func renderDashOverlay(hero player, width, height int) string {
 		hookLabel = fmt.Sprintf("[C] HOOK %.1fs", remaining.Seconds())
 		hookColor = "\x1b[38;2;160;166;174m"
 	}
-	label := dashLabel + "   " + slashLabel + "   " + hookLabel
+	ultimateLabel := "[V] ULT READY"
+	ultimateColor := "\x1b[38;2;115;207;174m"
+	if remaining := time.Until(hero.ultimateUntil); remaining > 0 {
+		ultimateLabel = fmt.Sprintf("[V] ULT %.1fs", remaining.Seconds())
+		ultimateColor = "\x1b[38;2;255;218;132m"
+	} else if remaining := time.Until(hero.ultimateCooldownUntil); remaining > 0 {
+		ultimateLabel = fmt.Sprintf("[V] ULT %.1fs", remaining.Seconds())
+		ultimateColor = "\x1b[38;2;160;166;174m"
+	}
+	label := dashLabel + "   " + slashLabel + "   " + hookLabel + "   " + ultimateLabel
 	// Place the status on the last terminal row as a fixed screen overlay.
 	column := max((width-len([]rune(label)))/2+1, 1)
-	return fmt.Sprintf("\x1b[%d;%dH%s%s   %s   %s%s\x1b[0m", max(height, 1), column, dashColor, dashLabel, slashColor, slashLabel, hookColor+hookLabel)
+	return fmt.Sprintf("\x1b[%d;%dH%s%s   %s   %s%s   %s%s\x1b[0m", max(height, 1), column, dashColor, dashLabel, slashColor, slashLabel, hookColor, hookLabel, ultimateColor, ultimateLabel)
 }
 
 func renderHookLine(frame *bytes.Buffer, heroX, heroY, foeX, foeY, width, height int) {
