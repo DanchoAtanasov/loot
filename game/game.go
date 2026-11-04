@@ -306,6 +306,7 @@ func Run() {
 			foes = alive
 			if bossDefeated {
 				clear(heldKeys)
+				hero.dashRemaining = 0
 				stageTransitionUntil = now.Add(3 * time.Second)
 			}
 			pickups = collectHealthPickups(&hero, pickups)
@@ -434,8 +435,10 @@ func Run() {
 				if hero.dashRemaining > 0 {
 					var defeated []int
 					hero.x, hero.y, hero.dashRemaining, defeated = advanceDash(&hero, foes, worldWidth, height)
+					bossDefeated := false
 					for _, index := range defeated {
 						foe := foes[index]
+						bossDefeated = bossDefeated || foe.finalBoss
 						kills++
 						if kills%5 == 0 {
 							pickups = append(pickups, healthPickup{x: foe.x, y: foe.y})
@@ -443,6 +446,11 @@ func Run() {
 						deathEffects = append(deathEffects, enemyDeathEffect{x: foe.x, y: foe.y, tank: foe.tank, startedAt: now})
 					}
 					hero.lastMove = now
+					if bossDefeated {
+						clear(heldKeys)
+						hero.dashRemaining = 0
+						stageTransitionUntil = now.Add(3 * time.Second)
+					}
 				} else {
 					// Advance held movement in single-cell increments. Rendering and the
 					// run cycle continue independently at 60 fps between movement ticks.
