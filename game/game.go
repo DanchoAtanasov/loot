@@ -639,6 +639,10 @@ func weaponAttackSpeed(weapon items.Weapon) float64 {
 	return weapon.AttackSpeed
 }
 
+func effectiveAttackSpeed(weapon items.Weapon, progressionBonus float64) float64 {
+	return weaponAttackSpeed(weapon) + progressionBonus
+}
+
 func weaponTierName(tier items.ItemTier) string {
 	switch tier {
 	case items.MagicTier:
@@ -874,10 +878,12 @@ func keepEnemyInChamber(x, y, width, height int, tank bool) (int, int) {
 }
 
 func levelUp(hero *player) {
-	for hero.Level < len(models.LevelThreshold) && hero.Experience >= models.LevelThreshold[hero.Level] {
+	maxInt := int(^uint(0) >> 1)
+	for hero.Level < maxInt && hero.Experience >= models.ExperienceForLevel(hero.Level) {
 		hero.Level++
 		hero.MaxHealth += models.PlayerStatGrowth.MaxHealth
 		hero.Damage += models.PlayerStatGrowth.Damage
+		hero.AttackSpeed += models.PlayerStatGrowth.AttackSpeed
 	}
 }
 

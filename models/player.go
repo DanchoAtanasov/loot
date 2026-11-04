@@ -8,11 +8,13 @@ type Player struct {
 	MovementSpeed int
 	Experience    int
 	Armour        int
+	AttackSpeed   float64 // bonus attacks per second gained from progression
 }
 
 type StatGrowth struct {
-	MaxHealth int
-	Damage    int
+	MaxHealth   int
+	Damage      int
+	AttackSpeed float64
 }
 
 var DefaultPlayer = Player{
@@ -25,11 +27,23 @@ var DefaultPlayer = Player{
 	Armour:        0,
 }
 
-var LevelThreshold []int = []int{
-	0, 50, 100, 200, 300, 400, 500, 700, 900, 1200, 1500, 1800, 2100, 2400, 3000,
+// ExperienceForLevel returns the cumulative experience needed to reach level.
+// The quadratic curve preserves the first three thresholds and continues
+// beyond the old fixed progression table.
+func ExperienceForLevel(level int) int {
+	if level <= 1 {
+		return 50
+	}
+	maxInt := int(^uint(0) >> 1)
+	n := int64(level)
+	if n > int64(maxInt-50)/25/(n-1) {
+		return maxInt
+	}
+	return int(25*n*(n-1) + 50)
 }
 
 var PlayerStatGrowth StatGrowth = StatGrowth{
-	MaxHealth: 2,
-	Damage:    1,
+	MaxHealth:   2,
+	Damage:      1,
+	AttackSpeed: 0.1,
 }

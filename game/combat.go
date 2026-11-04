@@ -8,7 +8,7 @@ import (
 )
 
 func resolveBattle(hero *player, foes []enemy, now time.Time) (int, []int) {
-	if hero.Health <= 0 || now.Sub(hero.lastHit) < attackInterval(hero.weapon) {
+	if hero.Health <= 0 || now.Sub(hero.lastHit) < attackInterval(hero.weapon, hero.AttackSpeed) {
 		return -1, nil
 	}
 	attackTarget := -1
@@ -208,10 +208,14 @@ func advanceHook(foes []enemy, hero player, width, height int) {
 	}
 }
 
-func attackInterval(weapon items.Weapon) time.Duration {
+func attackInterval(weapon items.Weapon, attackSpeedBonus float64) time.Duration {
 	attacksPerSecond := weapon.AttackSpeed
 	if attacksPerSecond <= 0 {
 		attacksPerSecond = 2 // unarmed cadence matches the original 500 ms interval
+	}
+	attacksPerSecond += attackSpeedBonus
+	if attacksPerSecond <= 0 {
+		attacksPerSecond = 0.1
 	}
 	return time.Duration(float64(time.Second) / attacksPerSecond)
 }
