@@ -224,7 +224,32 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 		}
 	}
 	frame.WriteString(renderDashOverlay(hero, width, height))
+	frame.WriteString(renderLevelChoiceOverlay(hero, width, height))
 	return frame.String()
+}
+
+func renderLevelChoiceOverlay(hero player, width, height int) string {
+	if hero.pendingLevelChoices == 0 {
+		return ""
+	}
+	lines := []string{
+		"+--------------------------------+",
+		"|        LEVEL UP: CHOOSE        |",
+		"|                                |",
+		"|  1  Attack       +1 damage     |",
+		"|  2  Health       +1 max health |",
+		"|  3  Attack speed +0.1 attacks/s|",
+		"|                                |",
+		"|        Press 1, 2, or 3        |",
+		"+--------------------------------+",
+	}
+	var overlay strings.Builder
+	startRow := max((height-len(lines))/2+1, 1)
+	for i, line := range lines {
+		column := max((width-len(line))/2+1, 1)
+		overlay.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[1;38;2;255;218;132m%s\x1b[0m", startRow+i, column, line))
+	}
+	return overlay.String()
 }
 
 func renderDashOverlay(hero player, width, height int) string {

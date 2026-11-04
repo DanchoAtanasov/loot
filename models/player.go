@@ -43,7 +43,7 @@ func ExperienceForLevel(level int) int {
 }
 
 var PlayerStatGrowth StatGrowth = StatGrowth{
-	MaxHealth:   2,
+	MaxHealth:   1,
 	Damage:      1,
 	AttackSpeed: 0.1,
 }

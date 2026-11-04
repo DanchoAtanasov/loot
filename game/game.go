@@ -73,23 +73,24 @@ type enemy struct {
 
 type player struct {
 	models.Player
-	weapon             items.Weapon
-	armour             items.Armour // chest slot
-	helmet             items.Armour
-	belt               items.Armour
-	offHand            items.Armour
-	potions            int
-	x, y               int
-	facing             byte
-	lastMove           time.Time
-	lastHit            time.Time
-	attackStarted      time.Time
-	dashDX, dashDY     int
-	dashRemaining      int
-	dashCooldownUntil  time.Time
-	slashCooldownUntil time.Time
-	hookCooldownUntil  time.Time
-	levelUpStarted     time.Time
+	weapon              items.Weapon
+	armour              items.Armour // chest slot
+	helmet              items.Armour
+	belt                items.Armour
+	offHand             items.Armour
+	potions             int
+	x, y                int
+	facing              byte
+	lastMove            time.Time
+	lastHit             time.Time
+	attackStarted       time.Time
+	pendingLevelChoices int
+	dashDX, dashDY      int
+	dashRemaining       int
+	dashCooldownUntil   time.Time
+	slashCooldownUntil  time.Time
+	hookCooldownUntil   time.Time
+	levelUpStarted      time.Time
 }
 
 type healthPickup struct {
@@ -260,7 +261,7 @@ func Run() {
 			hero.lastMove = now
 			lastStep = now
 		}
-		if !paused && !stagePending {
+		if !paused && !stagePending && hero.pendingLevelChoices == 0 {
 			for i := range foes {
 				foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, worldWidth, height, foes[i].tank)
 			}
@@ -316,6 +317,10 @@ func Run() {
 			levelUp(&hero)
 			if hero.Level > previousLevel {
 				hero.levelUpStarted = now
+				clear(heldKeys)
+				hero.dashRemaining = 0
+				hero.lastMove = time.Time{}
+				lastStep = now
 			}
 		}
 
@@ -348,6 +353,18 @@ func Run() {
 				stop()
 				continue
 			}
+			if event.key == '1' && event.pressed && hero.pendingLevelChoices == 0 && !paused && stageTransitionUntil.IsZero() {
+				usePotion(&hero)
+				continue
+			}
+			if hero.pendingLevelChoices > 0 {
+				if event.pressed && event.key >= '1' && event.key <= '3' {
+					chooseLevelUpgrade(&hero, event.key)
+					clear(heldKeys)
+					lastStep = time.Now()
+				}
+				continue
+			}
 			if (event.key == 'i' || event.key == 'I') && event.pressed {
 				showEquipment = !showEquipment
 				paused = showEquipment
@@ -363,10 +380,6 @@ func Run() {
 			}
 			if event.key == ' ' && event.pressed {
 				gearDrops = pickupGearDrop(&hero, gearDrops)
-				continue
-			}
-			if event.key == '1' && event.pressed {
-				usePotion(&hero)
 				continue
 			}
 			if (event.key == 'z' || event.key == 'Z') && event.pressed && hero.Health > 0 {
@@ -412,7 +425,7 @@ func Run() {
 				hero.lastMove = time.Now()
 			}
 		case now := <-ticker.C:
-			if !paused && stageTransitionUntil.IsZero() {
+			if !paused && stageTransitionUntil.IsZero() && hero.pendingLevelChoices == 0 {
 				advanceHook(foes, hero, worldWidth, height)
 				var defeated []int
 				flyingSlashes, defeated = advanceFlyingSlashes(flyingSlashes, foes, worldWidth, height, &hero)
@@ -431,7 +444,7 @@ func Run() {
 					stageTransitionUntil = now.Add(3 * time.Second)
 				}
 			}
-			if !paused && stageTransitionUntil.IsZero() && hero.Health > 0 && now.Sub(lastStep) >= 40*time.Millisecond {
+			if !paused && stageTransitionUntil.IsZero() && hero.pendingLevelChoices == 0 && hero.Health > 0 && now.Sub(lastStep) >= 40*time.Millisecond {
 				if hero.dashRemaining > 0 {
 					var defeated []int
 					hero.x, hero.y, hero.dashRemaining, defeated = advanceDash(&hero, foes, worldWidth, height)
@@ -463,11 +476,11 @@ func Run() {
 				lastStep = now
 			}
 		case <-enemyTicker.C:
-			if !paused {
+			if !paused && hero.pendingLevelChoices == 0 {
 				stepEnemyPacks(foes, hero.x, hero.y, worldWidth, height, time.Now())
 			}
 		case <-pickupTicker.C:
-			if !paused && stageTransitionUntil.IsZero() {
+			if !paused && stageTransitionUntil.IsZero() && hero.pendingLevelChoices == 0 {
 				pickups = append(pickups, spawnHealthPickup(worldWidth, height))
 			}
 		}
@@ -887,12 +900,31 @@ func keepEnemyInChamber(x, y, width, height int, tank bool) (int, int) {
 
 func levelUp(hero *player) {
 	maxInt := int(^uint(0) >> 1)
-	for hero.Level < maxInt && hero.Experience >= models.ExperienceForLevel(hero.Level) {
+	if hero.pendingLevelChoices == 0 && hero.Level < maxInt && hero.Experience >= models.ExperienceForLevel(hero.Level) {
 		hero.Level++
-		hero.MaxHealth += models.PlayerStatGrowth.MaxHealth
-		hero.Damage += models.PlayerStatGrowth.Damage
-		hero.AttackSpeed += models.PlayerStatGrowth.AttackSpeed
+		hero.pendingLevelChoices = 1
 	}
+}
+
+func chooseLevelUpgrade(hero *player, choice rune) bool {
+	if hero.pendingLevelChoices == 0 {
+		return false
+	}
+	switch choice {
+	case '1':
+		hero.Damage += models.PlayerStatGrowth.Damage
+	case '2':
+		hero.MaxHealth += models.PlayerStatGrowth.MaxHealth
+		if hero.Health > 0 {
+			hero.Health = min(hero.Health+models.PlayerStatGrowth.MaxHealth, hero.MaxHealth)
+		}
+	case '3':
+		hero.AttackSpeed += models.PlayerStatGrowth.AttackSpeed
+	default:
+		return false
+	}
+	hero.pendingLevelChoices--
+	return true
 }
 
 func abs(value int) int {
