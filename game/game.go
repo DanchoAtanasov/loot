@@ -903,6 +903,7 @@ func levelUp(hero *player) {
 	if hero.pendingLevelChoices == 0 && hero.Level < maxInt && hero.Experience >= models.ExperienceForLevel(hero.Level) {
 		hero.Level++
 		hero.pendingLevelChoices = 1
+		hero.MaxHealth++
 	}
 }
 
