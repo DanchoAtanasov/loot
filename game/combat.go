@@ -111,15 +111,19 @@ func advanceFlyingSlashes(slashes []flyingSlash, foes []enemy, width, height int
 	active := slashes[:0]
 	for i := range slashes {
 		slash := slashes[i]
+		length := math.Hypot(float64(slash.dx), float64(slash.dy))
+		if length == 0 {
+			continue
+		}
+		unitX, unitY := float64(slash.dx)/length, float64(slash.dy)/length
 		for step := 0; step < 3 && slash.remaining > 0; step++ {
 			slash.distance++
 			slash.frame++
 			wave := [...]int{0, 1, 0, -1}[slash.frame%4]
-			perpX, perpY := -sign(slash.dy), sign(slash.dx)
-			nextX := slash.startX + sign(slash.dx)*slash.distance + perpX*wave
-			nextY := slash.startY + sign(slash.dy)*slash.distance + perpY*wave
-			nextX, nextY = keepPlayerInChamber(nextX, nextY, width, height)
-			if nextX == slash.x && nextY == slash.y {
+			rawX := slash.startX + int(math.Round(unitX*float64(slash.distance)-unitY*float64(wave)))
+			rawY := slash.startY + int(math.Round(unitY*float64(slash.distance)+unitX*float64(wave)))
+			nextX, nextY := keepPlayerInChamber(rawX, rawY, width, height)
+			if nextX == slash.x && nextY == slash.y && (nextX != rawX || nextY != rawY) {
 				slash.remaining = 0
 				break
 			}

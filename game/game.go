@@ -498,7 +498,7 @@ func Run() {
 					hero.dashDX, hero.dashDY = dashDirection(hero.facing)
 					if mouseAim {
 						if dx, dy, screenDX, screenDY, ok := mouseAimDirection(hero, cameraU, cameraV, mouseX, mouseY, width, height); ok {
-							hero.dashDX, hero.dashDY = dx, dy
+							hero.dashDX, hero.dashDY = sign(dx), sign(dy)
 							hero.facing = facingFromScreenDelta(screenDX, screenDY)
 						}
 					}
@@ -520,13 +520,15 @@ func Run() {
 							hero.facing = facingFromScreenDelta(screenDX, screenDY)
 						}
 					}
-					dx, dy = sign(dx), sign(dy)
 					hero.slashCooldownUntil = time.Now().Add(500 * time.Millisecond)
 					for i := range foes {
 						foes[i].dashTagged = false
 					}
-					startX, startY := hero.x+dx*2, hero.y+dy*2
-					flyingSlashes = append(flyingSlashes, flyingSlash{x: startX, y: startY, startX: startX, startY: startY, dx: dx, dy: dy, remaining: 36})
+					length := math.Hypot(float64(dx), float64(dy))
+					unitDX, unitDY := float64(dx)/length, float64(dy)/length
+					startX := hero.x + int(math.Round(unitDX*2))
+					startY := hero.y + int(math.Round(unitDY*2))
+					flyingSlashes = append(flyingSlashes, flyingSlash{x: startX, y: startY, startX: startX, startY: startY, dx: dx, dy: dy, remaining: 48})
 				}
 				continue
 			}
@@ -1436,7 +1438,7 @@ func mouseAimDirection(hero player, cameraU, cameraV, mouseX, mouseY, width, hei
 	if worldDX == 0 && worldDY == 0 {
 		return 0, 0, screenDX, screenDY, false
 	}
-	return sign(worldDX), sign(worldDY), screenDX, screenDY, true
+	return worldDX, worldDY, screenDX, screenDY, true
 }
 
 func parseKeySequence(sequence string, terminator byte) (keyEvent, bool) {
