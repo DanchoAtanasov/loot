@@ -146,9 +146,13 @@ type gearDrop struct {
 }
 
 type keyEvent struct {
-	key     rune
-	pressed bool
-	tracked bool
+	key         rune
+	pressed     bool
+	tracked     bool
+	mouse       bool
+	mouseX      int
+	mouseY      int
+	mouseButton int
 }
 
 func wizardPosition(worldWidth, worldHeight, width int) (int, int) {
@@ -180,8 +184,8 @@ func Run() {
 	}
 	defer restoreTerminal(originalTerminal)
 
-	fmt.Print("\x1b[?1049h\x1b[>10u\x1b[?25l\x1b[2J") // alternate screen, key events, hide cursor
-	defer fmt.Print("\x1b[?2026l\x1b[0m\x1b[?25h\x1b[<u\x1b[?1049l")
+	fmt.Print("\x1b[?1049h\x1b[>10u\x1b[?1003h\x1b[?1006h\x1b[?25l\x1b[2J") // alternate screen, key and mouse events, hide cursor
+	defer fmt.Print("\x1b[?2026l\x1b[?1003l\x1b[?1006l\x1b[0m\x1b[?25h\x1b[<u\x1b[?1049l")
 	loadingWidth, loadingHeight := readTerminalSize()
 	fmt.Print(renderLoadingScreen(loadingWidth, loadingHeight))
 	for imageID, path := range []string{
@@ -278,6 +282,7 @@ func Run() {
 	questCompleted := false
 	keys := make(chan keyEvent, 32)
 	heldKeys := make(map[rune]bool)
+	mouseX, mouseY, mouseAim := 0, 0, false
 	lastStep := time.Time{}
 	runAnimationStarted := time.Time{}
 	go readKeys(keys)
@@ -434,6 +439,20 @@ func Run() {
 		case <-ctx.Done():
 			return
 		case event := <-keys:
+			if event.mouse {
+				if event.mouseX < 1 || event.mouseY < 1 || event.mouseX > width || event.mouseY > height {
+					continue
+				}
+				mouseX, mouseY, mouseAim = event.mouseX, event.mouseY, true
+				switch event.mouseButton {
+				case 0:
+					event.key, event.pressed = 'x', true
+				case 2:
+					event.key, event.pressed = 'z', true
+				default:
+					continue
+				}
+			}
 			if event.key == 3 && event.pressed {
 				stop()
 				continue
@@ -477,8 +496,14 @@ func Run() {
 			if (event.key == 'z' || event.key == 'Z') && event.pressed && hero.Health > 0 {
 				if hero.dashRemaining == 0 && !time.Now().Before(hero.dashCooldownUntil) {
 					hero.dashDX, hero.dashDY = dashDirection(hero.facing)
+					if mouseAim {
+						if dx, dy, screenDX, screenDY, ok := mouseAimDirection(hero, cameraU, cameraV, mouseX, mouseY, width, height); ok {
+							hero.dashDX, hero.dashDY = dx, dy
+							hero.facing = facingFromScreenDelta(screenDX, screenDY)
+						}
+					}
 					hero.dashRemaining = 12
-					hero.dashCooldownUntil = time.Now().Add(5 * time.Second)
+					hero.dashCooldownUntil = time.Now().Add(500 * time.Millisecond)
 					for i := range foes {
 						foes[i].dashTagged = false
 					}
@@ -489,8 +514,14 @@ func Run() {
 			if (event.key == 'x' || event.key == 'X') && event.pressed && hero.Health > 0 {
 				if !time.Now().Before(hero.slashCooldownUntil) {
 					dx, dy := dashDirection(hero.facing)
+					if mouseAim {
+						if aimDX, aimDY, screenDX, screenDY, ok := mouseAimDirection(hero, cameraU, cameraV, mouseX, mouseY, width, height); ok {
+							dx, dy = aimDX, aimDY
+							hero.facing = facingFromScreenDelta(screenDX, screenDY)
+						}
+					}
 					dx, dy = sign(dx), sign(dy)
-					hero.slashCooldownUntil = time.Now().Add(time.Second)
+					hero.slashCooldownUntil = time.Now().Add(500 * time.Millisecond)
 					for i := range foes {
 						foes[i].dashTagged = false
 					}
@@ -501,6 +532,11 @@ func Run() {
 			}
 			if (event.key == 'c' || event.key == 'C') && event.pressed && hero.Health > 0 {
 				if !time.Now().Before(hero.hookCooldownUntil) {
+					if mouseAim {
+						if _, _, screenDX, screenDY, ok := mouseAimDirection(hero, cameraU, cameraV, mouseX, mouseY, width, height); ok {
+							hero.facing = facingFromScreenDelta(screenDX, screenDY)
+						}
+					}
 					if target := hookTarget(hero, foes, 28); target >= 0 {
 						foes[target].hooked = true
 						hero.hookCooldownUntil = time.Now().Add(2 * time.Second)
@@ -1095,19 +1131,19 @@ func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height in
 	step := max(movementSpeed, 1)
 	targetX, targetY := x, y
 	switch key {
-	case 'w', 'W':
+	case 'e', 'E':
 		targetX -= step
 		targetY -= step
 		facing = 'w'
 	case 's', 'S':
-		targetX += step
-		targetY += step
-		facing = 's'
-	case 'a', 'A':
 		targetX -= step
 		targetY += step
 		facing = 'a'
 	case 'd', 'D':
+		targetX += step
+		targetY += step
+		facing = 's'
+	case 'f', 'F':
 		targetX += step
 		targetY -= step
 		facing = 'd'
@@ -1118,15 +1154,15 @@ func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height in
 
 func movePlayerHeld(held map[rune]bool, x, y int, facing byte, movementSpeed, width, height int, foes []enemy, effects []enemyDeathEffect, water []waterPool) (int, int, byte) {
 	dx, dy := 0, 0
-	if held['a'] != held['d'] {
-		if held['a'] {
+	if held['s'] != held['f'] {
+		if held['s'] {
 			dx = -1
 		} else {
 			dx = 1
 		}
 	}
-	if held['w'] != held['s'] {
-		if held['w'] {
+	if held['e'] != held['d'] {
+		if held['e'] {
 			dy = -1
 		} else {
 			dy = 1
@@ -1155,7 +1191,7 @@ func movePlayerHeld(held map[rune]bool, x, y int, facing byte, movementSpeed, wi
 		facing = 's'
 	}
 	step := max(movementSpeed, 1)
-	// WASD describes screen axes. Convert those directions to world axes,
+	// ESDF describes screen axes. Convert those directions to world axes,
 	// which are diagonally aligned with the isometric projection.
 	worldDX, worldDY := dx+dy, dy-dx
 	targetX := x + worldDX*step
@@ -1298,7 +1334,35 @@ func readKeys(keys chan<- keyEvent) {
 		if intro != '[' {
 			continue
 		}
+		first, err = reader.ReadByte()
+		if err != nil {
+			return
+		}
+		if first == '<' {
+			var mouseSequence strings.Builder
+			for {
+				part, readErr := reader.ReadByte()
+				if readErr != nil {
+					return
+				}
+				if part == 'M' || part == 'm' {
+					if event, ok := parseSGRMouse(mouseSequence.String(), part); ok {
+						sendKey(keys, event)
+					}
+					break
+				}
+				mouseSequence.WriteByte(part)
+			}
+			continue
+		}
 		var sequence strings.Builder
+		if first >= 0x40 && first <= 0x7e {
+			if key, ok := parseKeySequence("", first); ok {
+				sendKey(keys, key)
+			}
+			continue
+		}
+		sequence.WriteByte(first)
 		for {
 			part, readErr := reader.ReadByte()
 			if readErr != nil {
@@ -1316,19 +1380,78 @@ func readKeys(keys chan<- keyEvent) {
 	}
 }
 
+func parseSGRMouse(sequence string, terminator byte) (keyEvent, bool) {
+	fields := strings.Split(sequence, ";")
+	if len(fields) != 3 {
+		return keyEvent{}, false
+	}
+	button, errButton := strconv.Atoi(fields[0])
+	x, errX := strconv.Atoi(fields[1])
+	y, errY := strconv.Atoi(fields[2])
+	if errButton != nil || errX != nil || errY != nil || x < 1 || y < 1 {
+		return keyEvent{}, false
+	}
+	mouseButton := -1
+	if terminator == 'M' && button&32 == 0 && button&64 == 0 {
+		baseButton := button & 3
+		if baseButton == 0 || baseButton == 2 {
+			mouseButton = baseButton
+		}
+	}
+	return keyEvent{mouse: true, mouseX: x, mouseY: y, mouseButton: mouseButton}, true
+}
+
+func facingFromScreenDelta(dx, dy int) byte {
+	dx, dy = sign(dx), sign(dy)
+	switch {
+	case dx < 0 && dy < 0:
+		return 'q'
+	case dx > 0 && dy < 0:
+		return 'e'
+	case dx < 0 && dy > 0:
+		return 'z'
+	case dx > 0 && dy > 0:
+		return 'c'
+	case dx < 0:
+		return 'a'
+	case dx > 0:
+		return 'd'
+	case dy < 0:
+		return 'w'
+	case dy > 0:
+		return 's'
+	default:
+		return 's'
+	}
+}
+
+func mouseAimDirection(hero player, cameraU, cameraV, mouseX, mouseY, width, height int) (worldDX, worldDY, screenDX, screenDY int, ok bool) {
+	if mouseX < 1 || mouseY < 1 || mouseX > width || mouseY > height {
+		return 0, 0, 0, 0, false
+	}
+	heroScreenX, heroScreenY := isoScreenPoint(hero.x, hero.y, cameraU, cameraV, width, height)
+	screenDX, screenDY = mouseX-1-heroScreenX, mouseY-1-heroScreenY
+	worldHalfDX := int(math.Round(float64(screenDX) / 2))
+	worldDX, worldDY = worldHalfDX+screenDY, screenDY-worldHalfDX
+	if worldDX == 0 && worldDY == 0 {
+		return 0, 0, screenDX, screenDY, false
+	}
+	return sign(worldDX), sign(worldDY), screenDX, screenDY, true
+}
+
 func parseKeySequence(sequence string, terminator byte) (keyEvent, bool) {
 	// Plain CSI arrows work as single steps. Kitty CSI arrows include event
 	// types, which let held movement stop cleanly on key release.
 	arrow := rune(0)
 	switch terminator {
 	case 'A':
-		arrow = 'w'
+		arrow = 'e'
 	case 'B':
-		arrow = 's'
-	case 'C':
 		arrow = 'd'
+	case 'C':
+		arrow = 'f'
 	case 'D':
-		arrow = 'a'
+		arrow = 's'
 	}
 	if arrow != 0 {
 		if !strings.Contains(sequence, ":") {
@@ -1382,13 +1505,13 @@ func keyFromCode(code int) rune {
 	}
 	switch code {
 	case 57350: // Left arrow.
-		return 'a'
-	case 57351: // Right arrow.
-		return 'd'
-	case 57352: // Up arrow.
-		return 'w'
-	case 57353: // Down arrow.
 		return 's'
+	case 57351: // Right arrow.
+		return 'f'
+	case 57352: // Up arrow.
+		return 'e'
+	case 57353: // Down arrow.
+		return 'd'
 	default:
 		return 0
 	}
