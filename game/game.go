@@ -67,6 +67,7 @@ type hudSegment struct {
 type enemy struct {
 	models.Enemy
 	x, y           int
+	maxHealth      int
 	tank           bool
 	brute          bool
 	finalBoss      bool
@@ -918,6 +919,7 @@ func newEnemyForStage(tank, brute bool, stage int) enemy {
 	} else if brute {
 		foe.Enemy = models.BruteEnemy
 	}
+	foe.maxHealth = foe.Health
 	stage = max(stage, 1)
 	foe.Damage += (stage - 1) / 2
 	foe.ExperienceOnKill += (foe.ExperienceOnKill*(stage-1) + 4) / 5

@@ -122,6 +122,7 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 		}
 	}
 	drawHUD(grid, hero, stage, foes, gearDrops)
+	drawBossHealthBars(grid, foes, viewLeft, left, right)
 	visibleEffects := make([]enemyDeathEffect, 0, len(deathEffects))
 	for _, effect := range deathEffects {
 		effect.x -= viewLeft
@@ -278,6 +279,54 @@ func renderQuestOverlay(width int, complete bool) string {
 	headingColumn := max(width-len(heading)+1, 1)
 	objectiveColumn := max(width-len(objective)+1, 1)
 	return fmt.Sprintf("\x1b[3;%dH%s%s\x1b[4;%dH%s%s\x1b[0m", headingColumn, color, heading, objectiveColumn, color, objective)
+}
+
+func drawBossHealthBars(grid [][]tile, foes []enemy, viewLeft, left, right int) {
+	const barSegments = 10
+	for _, foe := range foes {
+		if !foe.finalBoss || foe.Health <= 0 {
+			continue
+		}
+		x, y := foe.x-viewLeft, foe.y
+		if foe.tank {
+			x++
+			y++
+		}
+		_, columns, rows := enemySpriteSize(foe)
+		spriteTop := max(y-rows/2, 3)
+		spriteBottom := spriteTop + rows - 1
+		if x+columns/2 < left || x-columns/2 > right || spriteTop > len(grid) || spriteBottom < 3 {
+			continue
+		}
+		barTerminalRow := spriteTop - 1
+		if barTerminalRow < 3 {
+			continue
+		}
+		barRow := barTerminalRow - 1
+		maxHealth := max(foe.maxHealth, 1)
+		label := fmt.Sprintf("HP %d/%d ", max(foe.Health, 0), maxHealth)
+		filled := 0
+		filled = min(max(foe.Health*barSegments/maxHealth, 0), barSegments)
+		barWidth := len(label) + barSegments
+		startX := x - barWidth/2
+		for index, glyph := range label {
+			column := startX + index
+			if column >= left && column <= right && column >= 0 && column < len(grid[barRow]) {
+				grid[barRow][column] = tile{glyph, "\x1b[1;38;2;220;226;232m"}
+			}
+		}
+		for segment := 0; segment < barSegments; segment++ {
+			column := startX + len(label) + segment
+			if column < left || column > right || column < 0 || column >= len(grid[barRow]) {
+				continue
+			}
+			glyph, color := '░', "\x1b[38;2;100;108;116m"
+			if segment < filled {
+				glyph, color = '█', "\x1b[38;2;225;82;78m"
+			}
+			grid[barRow][column] = tile{glyph, color}
+		}
+	}
 }
 
 func renderLevelChoiceOverlay(hero player, width, height int) string {
