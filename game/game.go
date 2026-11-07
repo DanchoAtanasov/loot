@@ -20,7 +20,7 @@ import (
 
 const (
 	framesPerSecond              = 60
-	initialEnemyPackCount        = 20
+	initialEnemyPackCount        = 80
 	heroImageCols                = 26
 	heroImageRows                = 7
 	healthImageCols              = 12
