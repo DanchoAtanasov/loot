@@ -71,6 +71,7 @@ type enemy struct {
 	tank           bool
 	brute          bool
 	finalBoss      bool
+	aggro          bool
 	dashTagged     bool
 	hooked         bool
 	ultimateTarget bool
@@ -1021,7 +1022,7 @@ func scatterWater(width, height int) []waterPool {
 func stepEnemyPacks(foes []enemy, heroX, heroY, width, height int, now time.Time) {
 	for i := range foes {
 		foe := &foes[i]
-		if foe.Health <= 0 || foe.hooked || foe.ultimateTarget || now.Before(foe.nextMoveAt) {
+		if foe.Health <= 0 || foe.hooked || foe.ultimateTarget {
 			continue
 		}
 		centerX, centerY := foe.x, foe.y
@@ -1029,7 +1030,13 @@ func stepEnemyPacks(foes []enemy, heroX, heroY, width, height int, now time.Time
 			centerX++
 			centerY++
 		}
-		if abs(heroX-centerX) > enemyAggroHorizontalRange || abs(heroY-centerY) > enemyAggroVerticalRange {
+		if !foe.aggro {
+			if abs(heroX-centerX) > enemyAggroHorizontalRange || abs(heroY-centerY) > enemyAggroVerticalRange {
+				continue
+			}
+			foe.aggro = true
+		}
+		if now.Before(foe.nextMoveAt) {
 			continue
 		}
 		if heroCanHitEnemy(*foe, heroX, heroY) {
