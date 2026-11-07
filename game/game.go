@@ -149,6 +149,14 @@ func isNearWizard(hero player, worldWidth, width, height int) bool {
 	return abs(hero.x-wizardX) <= 8 && abs(hero.y-wizardY) <= 3
 }
 
+func completeBossQuest(hero *player, questActive bool, questCompleted *bool) {
+	if !questActive || *questCompleted {
+		return
+	}
+	hero.Experience += 100
+	*questCompleted = true
+}
+
 func Run() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -252,6 +260,7 @@ func Run() {
 	wizardHiUntil := time.Time{}
 	wizardQuestUntil := time.Time{}
 	questActive := false
+	questCompleted := false
 	keys := make(chan keyEvent, 32)
 	heldKeys := make(map[rune]bool)
 	lastStep := time.Time{}
@@ -341,6 +350,7 @@ func Run() {
 			}
 			foes = alive
 			if bossDefeated {
+				completeBossQuest(&hero, questActive, &questCompleted)
 				clear(heldKeys)
 				hero.dashRemaining = 0
 				stageTransitionUntil = now.Add(3 * time.Second)
@@ -387,7 +397,7 @@ func Run() {
 		if !wizardQuestUntil.IsZero() && !now.Before(wizardQuestUntil) {
 			questActive = true
 		}
-		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive))
+		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -515,6 +525,7 @@ func Run() {
 					deathEffects = append(deathEffects, enemyDeathEffect{x: foe.x, y: foe.y, tank: foe.tank, startedAt: now})
 				}
 				if bossDefeated {
+					completeBossQuest(&hero, questActive, &questCompleted)
 					clear(heldKeys)
 					stageTransitionUntil = now.Add(3 * time.Second)
 				}
@@ -537,6 +548,7 @@ func Run() {
 					}
 					hero.lastMove = now
 					if bossDefeated {
+						completeBossQuest(&hero, questActive, &questCompleted)
 						clear(heldKeys)
 						hero.dashRemaining = 0
 						stageTransitionUntil = now.Add(3 * time.Second)

@@ -51,7 +51,7 @@ func renderLoadingScreen(width, height int) string {
 	return frame.String()
 }
 
-func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive bool) string {
+func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -249,14 +249,21 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 	frame.WriteString(renderDashOverlay(hero, width, height))
 	frame.WriteString(renderLevelChoiceOverlay(hero, width, height))
 	if questActive {
-		frame.WriteString(renderQuestOverlay(width))
+		frame.WriteString(renderQuestOverlay(width, questCompleted))
 	}
 	return frame.String()
 }
 
-func renderQuestOverlay(width int) string {
-	column := max(width-15, 1)
-	return fmt.Sprintf("\x1b[3;%dH\x1b[1;38;2;255;218;132mQUEST\x1b[4;%dH\x1b[38;2;230;230;220mKill boss\x1b[0m", column, column)
+func renderQuestOverlay(width int, complete bool) string {
+	heading, objective := "QUEST", "Kill boss"
+	color := "\x1b[1;38;2;255;218;132m"
+	if complete {
+		heading, objective = "QUEST COMPLETE", "Boss defeated +100 XP"
+		color = "\x1b[1;38;2;115;207;174m"
+	}
+	headingColumn := max(width-len(heading)+1, 1)
+	objectiveColumn := max(width-len(objective)+1, 1)
+	return fmt.Sprintf("\x1b[3;%dH%s%s\x1b[4;%dH%s%s\x1b[0m", headingColumn, color, heading, objectiveColumn, color, objective)
 }
 
 func renderLevelChoiceOverlay(hero player, width, height int) string {
