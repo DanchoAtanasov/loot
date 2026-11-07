@@ -285,6 +285,9 @@ func Run() {
 		stagePending := !stageTransitionUntil.IsZero()
 		if stagePending && !now.Before(stageTransitionUntil) {
 			stage++
+			if questActive {
+				questCompleted = false
+			}
 			left, _, top, bottom = chamberBounds(worldWidth, height)
 			hero.x, hero.y = keepPlayerInChamber(left+2, (top+bottom)/2, worldWidth, height)
 			hero.attackStarted = time.Time{}
