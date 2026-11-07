@@ -250,6 +250,8 @@ func Run() {
 	paused := false
 	heroHiUntil := time.Time{}
 	wizardHiUntil := time.Time{}
+	wizardQuestUntil := time.Time{}
+	questActive := false
 	keys := make(chan keyEvent, 32)
 	heldKeys := make(map[rune]bool)
 	lastStep := time.Time{}
@@ -381,7 +383,11 @@ func Run() {
 		now = time.Now()
 		showHeroHi := now.Before(heroHiUntil)
 		showWizardHi := !showHeroHi && now.Before(wizardHiUntil)
-		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, showEquipment, nearWizard, showHeroHi, showWizardHi))
+		showWizardQuest := !showHeroHi && !showWizardHi && now.Before(wizardQuestUntil) && !wizardQuestUntil.IsZero()
+		if !wizardQuestUntil.IsZero() && !now.Before(wizardQuestUntil) {
+			questActive = true
+		}
+		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -419,8 +425,10 @@ func Run() {
 			}
 			if event.key == ' ' && event.pressed {
 				if isNearWizard(hero, worldWidth, width, height) {
-					heroHiUntil = time.Now().Add(800 * time.Millisecond)
-					wizardHiUntil = time.Now().Add(2 * time.Second)
+					now := time.Now()
+					heroHiUntil = now.Add(650 * time.Millisecond)
+					wizardHiUntil = now.Add(1300 * time.Millisecond)
+					wizardQuestUntil = now.Add(2600 * time.Millisecond)
 					continue
 				}
 				gearDrops = pickupGearDrop(&hero, gearDrops)

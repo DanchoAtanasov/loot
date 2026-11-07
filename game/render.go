@@ -51,7 +51,7 @@ func renderLoadingScreen(width, height int) string {
 	return frame.String()
 }
 
-func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, showEquipment, nearWizard, showHeroHi, showWizardHi bool) string {
+func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -196,11 +196,14 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 	if showHeroHi {
 		drawSpeechText(&frame, "Hi!", "\x1b[1;38;2;140;220;255m", hero.x-viewLeft, max(hero.y-heroImageRows/2-1, 3), width)
 	}
-	if showWizardHi || (nearWizard && !showHeroHi) {
+	if showWizardHi || showWizardQuest || (nearWizard && !showHeroHi) {
 		message := "Press Space"
 		messageColor := "\x1b[1;38;2;140;220;255m"
 		if showWizardHi {
 			message = "Hi!"
+			messageColor = "\x1b[1;38;2;255;226;150m"
+		} else if showWizardQuest {
+			message = "Kill the boss."
 			messageColor = "\x1b[1;38;2;255;226;150m"
 		}
 		messageRow := max(wizardY-wizardImageRows/2-1, 3)
@@ -245,7 +248,15 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 	}
 	frame.WriteString(renderDashOverlay(hero, width, height))
 	frame.WriteString(renderLevelChoiceOverlay(hero, width, height))
+	if questActive {
+		frame.WriteString(renderQuestOverlay(width))
+	}
 	return frame.String()
+}
+
+func renderQuestOverlay(width int) string {
+	column := max(width-15, 1)
+	return fmt.Sprintf("\x1b[3;%dH\x1b[1;38;2;255;218;132mQUEST\x1b[4;%dH\x1b[38;2;230;230;220mKill boss\x1b[0m", column, column)
 }
 
 func renderLevelChoiceOverlay(hero player, width, height int) string {
