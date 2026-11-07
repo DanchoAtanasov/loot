@@ -25,6 +25,10 @@ const (
 	heroImageRows                = 7
 	healthImageCols              = 12
 	healthImageRows              = 4
+	wizardImageID                = 19
+	wizardImageCols              = 18
+	wizardImageRows              = 6
+	warriorImageID               = 20 // Clear any previously cached placement without loading the asset.
 	enemySmallImageID            = 11
 	enemyMediumImageID           = 12
 	enemyTankImageID             = 13
@@ -135,6 +139,16 @@ type keyEvent struct {
 	tracked bool
 }
 
+func wizardPosition(worldWidth, width, height int) (int, int) {
+	worldLeft, _, top, bottom := chamberBounds(worldWidth, height)
+	return worldLeft + width/2 - 12, (top + bottom) / 2
+}
+
+func isNearWizard(hero player, worldWidth, width, height int) bool {
+	wizardX, wizardY := wizardPosition(worldWidth, width, height)
+	return abs(hero.x-wizardX) <= 8 && abs(hero.y-wizardY) <= 3
+}
+
 func Run() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -202,6 +216,13 @@ func Run() {
 		return
 	}
 	fmt.Print(kittyTransmitHero(healthImage, healthImageID))
+	wizardImage, err := loadKittyHero("assets/pixel_wizard.png")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not load wizard image: %v\n", err)
+		return
+	}
+	fmt.Print(kittyTransmitHero(wizardImage, wizardImageID))
+	fmt.Printf("\x1b_Ga=d,d=i,i=%d,q=2\x1b\\", warriorImageID)
 
 	width, height := readTerminalSize()
 	worldWidth := width * 4
@@ -227,6 +248,8 @@ func Run() {
 	gearDrops := make([]gearDrop, 0)
 	showEquipment := false
 	paused := false
+	heroHiUntil := time.Time{}
+	wizardHiUntil := time.Time{}
 	keys := make(chan keyEvent, 32)
 	heldKeys := make(map[rune]bool)
 	lastStep := time.Time{}
@@ -354,7 +377,11 @@ func Run() {
 		if !stageTransitionUntil.IsZero() {
 			transitionSeconds = int(math.Ceil(time.Until(stageTransitionUntil).Seconds()))
 		}
-		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, showEquipment))
+		nearWizard := isNearWizard(hero, worldWidth, width, height)
+		now = time.Now()
+		showHeroHi := now.Before(heroHiUntil)
+		showWizardHi := !showHeroHi && now.Before(wizardHiUntil)
+		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, showEquipment, nearWizard, showHeroHi, showWizardHi))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -391,6 +418,11 @@ func Run() {
 				continue
 			}
 			if event.key == ' ' && event.pressed {
+				if isNearWizard(hero, worldWidth, width, height) {
+					heroHiUntil = time.Now().Add(800 * time.Millisecond)
+					wizardHiUntil = time.Now().Add(2 * time.Second)
+					continue
+				}
 				gearDrops = pickupGearDrop(&hero, gearDrops)
 				continue
 			}

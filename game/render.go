@@ -51,7 +51,7 @@ func renderLoadingScreen(width, height int) string {
 	return frame.String()
 }
 
-func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, showEquipment bool) string {
+func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, showEquipment, nearWizard, showHeroHi, showWizardHi bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -142,6 +142,8 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 		fmt.Fprintf(&frame, "\x1b_Ga=d,d=i,i=%d,q=2\x1b\\", imageID)
 	}
 	fmt.Fprintf(&frame, "\x1b_Ga=d,d=i,i=%d,q=2\x1b\\", healthImageID)
+	fmt.Fprintf(&frame, "\x1b_Ga=d,d=i,i=%d,q=2\x1b\\", wizardImageID)
+	fmt.Fprintf(&frame, "\x1b_Ga=d,d=i,i=%d,q=2\x1b\\", warriorImageID)
 	frame.WriteString("\x1b[H")
 	for y, row := range grid {
 		lastColor := ""
@@ -185,6 +187,24 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 		}
 		row := max(y-rows/2, 3) // Keep enemy art below the two HUD rows.
 		frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", row, max(x-cols/2, 1), imageID, index+1, cols, rows))
+	}
+	wizardX := worldLeft + width/2 - 12 - viewLeft
+	wizardY := (top + bottom) / 2
+	if wizardX+wizardImageCols/2 >= left && wizardX-wizardImageCols/2 <= right {
+		frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(wizardY-wizardImageRows/2, 3), max(wizardX-wizardImageCols/2, 1), wizardImageID, wizardImageCols, wizardImageRows))
+	}
+	if showHeroHi {
+		drawSpeechText(&frame, "Hi!", "\x1b[1;38;2;140;220;255m", hero.x-viewLeft, max(hero.y-heroImageRows/2-1, 3), width)
+	}
+	if showWizardHi || (nearWizard && !showHeroHi) {
+		message := "Press Space"
+		messageColor := "\x1b[1;38;2;140;220;255m"
+		if showWizardHi {
+			message = "Hi!"
+			messageColor = "\x1b[1;38;2;255;226;150m"
+		}
+		messageRow := max(wizardY-wizardImageRows/2-1, 3)
+		drawSpeechText(&frame, message, messageColor, wizardX, messageRow, width)
 	}
 	imageID := 1
 	if swingFrame >= 0 {
@@ -250,6 +270,11 @@ func renderLevelChoiceOverlay(hero player, width, height int) string {
 		overlay.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[1;38;2;255;218;132m%s\x1b[0m", startRow+i, column, line))
 	}
 	return overlay.String()
+}
+
+func drawSpeechText(frame *bytes.Buffer, message, color string, centerX, row, width int) {
+	column := min(max(centerX-len(message)/2+1, 1), max(width-len(message)+1, 1))
+	fmt.Fprintf(frame, "\x1b[%d;%dH%s%s\x1b[0m", row, column, color, message)
 }
 
 func renderDashOverlay(hero player, width, height int) string {
