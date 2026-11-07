@@ -51,7 +51,7 @@ func renderLoadingScreen(width, height int) string {
 	return frame.String()
 }
 
-func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted bool) string {
+func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, waters []waterPool, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -104,6 +104,20 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 				if p[0] >= left && p[0] <= right {
 					grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
 				}
+			}
+		}
+	}
+	for _, pool := range waters {
+		for y := max(pool.y-pool.ry, top+1); y <= min(pool.y+pool.ry, bottom-1); y++ {
+			for x := max(pool.x-pool.rx, viewLeft+left); x <= min(pool.x+pool.rx, viewLeft+right); x++ {
+				if !pool.contains(x, y) {
+					continue
+				}
+				glyph := '≈'
+				if (x+y)%3 == 0 {
+					glyph = '~'
+				}
+				grid[y][x-viewLeft] = tile{glyph, "\x1b[38;2;55;143;195m"}
 			}
 		}
 	}

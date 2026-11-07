@@ -111,6 +111,17 @@ type bush struct {
 	y int
 }
 
+type waterPool struct {
+	x, y   int
+	rx, ry int
+}
+
+func (pool waterPool) contains(x, y int) bool {
+	dx, dy := x-pool.x, y-pool.y
+	rx2, ry2 := pool.rx*pool.rx, pool.ry*pool.ry
+	return dx*dx*ry2+dy*dy*rx2 <= rx2*ry2
+}
+
 type enemyDeathEffect struct {
 	x, y      int
 	tank      bool
@@ -237,6 +248,7 @@ func Run() {
 	left, _, top, bottom := chamberBounds(worldWidth, height)
 	playerX, playerY := left+2, (top+bottom)/2
 	bushes := scatterBushes(worldWidth, height)
+	waters := scatterWater(worldWidth, height)
 	hero := player{
 		Player:   models.DefaultPlayer,
 		weapon:   items.Weapon{},
@@ -292,6 +304,7 @@ func Run() {
 			hero.x, hero.y = keepPlayerInChamber(left+2, (top+bottom)/2, worldWidth, height)
 			hero.attackStarted = time.Time{}
 			bushes = scatterBushes(worldWidth, height)
+			waters = scatterWater(worldWidth, height)
 			pickups = nil
 			gearDrops = nil
 			deathEffects = nil
@@ -400,7 +413,7 @@ func Run() {
 		if !wizardQuestUntil.IsZero() && !now.Before(wizardQuestUntil) {
 			questActive = true
 		}
-		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted))
+		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, waters, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -509,7 +522,7 @@ func Run() {
 				continue
 			}
 			if hero.Health > 0 && event.pressed {
-				hero.x, hero.y, hero.facing = movePlayer(byte(event.key), hero.x, hero.y, hero.facing, hero.MovementSpeed, worldWidth, height, foes, deathEffects)
+				hero.x, hero.y, hero.facing = movePlayer(byte(event.key), hero.x, hero.y, hero.facing, hero.MovementSpeed, worldWidth, height, foes, deathEffects, waters)
 				hero.lastMove = time.Now()
 			}
 		case now := <-ticker.C:
@@ -538,7 +551,7 @@ func Run() {
 					advanceUltimate(foes, hero, worldWidth, height)
 				} else if hero.dashRemaining > 0 {
 					var defeated []int
-					hero.x, hero.y, hero.dashRemaining, defeated = advanceDash(&hero, foes, worldWidth, height)
+					hero.x, hero.y, hero.dashRemaining, defeated = advanceDash(&hero, foes, worldWidth, height, waters)
 					bossDefeated := false
 					for _, index := range defeated {
 						foe := foes[index]
@@ -559,7 +572,7 @@ func Run() {
 				} else {
 					// Advance held movement in single-cell increments. Rendering and the
 					// run cycle continue independently at 60 fps between movement ticks.
-					nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, 1, worldWidth, height, foes, deathEffects)
+					nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, 1, worldWidth, height, foes, deathEffects, waters)
 					if nextX != hero.x || nextY != hero.y {
 						hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
 						hero.lastMove = now
@@ -938,6 +951,22 @@ func scatterBushes(width, height int) []bush {
 	return plants
 }
 
+func scatterWater(width, height int) []waterPool {
+	left, right, top, bottom := chamberBounds(width, height)
+	centerY := (top + bottom) / 2
+	rx := max(width/60, 6)
+	ry := max((bottom-top)/12, 2)
+	centers := []waterPool{
+		{x: left + (right-left)/4, y: centerY, rx: rx, ry: ry},
+		{x: left + (right-left)/2, y: centerY - ry*2, rx: rx + 2, ry: ry},
+		{x: left + 3*(right-left)/4, y: centerY + ry*2, rx: rx, ry: ry + 1},
+	}
+	for i := range centers {
+		centers[i].y = min(max(centers[i].y, top+centers[i].ry+1), bottom-centers[i].ry-1)
+	}
+	return centers
+}
+
 func stepEnemyPacks(foes []enemy, heroX, heroY, width, height int, now time.Time) {
 	for i := range foes {
 		foe := &foes[i]
@@ -1049,7 +1078,7 @@ func keepPlayerInChamber(x, y, width, height int) (int, int) {
 	return min(max(x, left+2), right-2), min(max(y, top+1), bottom-1)
 }
 
-func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height int, foes []enemy, effects []enemyDeathEffect) (int, int, byte) {
+func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height int, foes []enemy, effects []enemyDeathEffect, water []waterPool) (int, int, byte) {
 	step := max(movementSpeed, 1)
 	horizontalStep := horizontalMovementScale() * step
 	targetX, targetY := x, y
@@ -1067,11 +1096,11 @@ func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height in
 		targetX += horizontalStep
 		facing = 'd'
 	}
-	x, y = movePlayerAlongPath(x, y, targetX, targetY, width, height, foes, effects)
+	x, y = movePlayerAlongPath(x, y, targetX, targetY, width, height, foes, effects, water)
 	return x, y, facing
 }
 
-func movePlayerHeld(held map[rune]bool, x, y int, facing byte, movementSpeed, width, height int, foes []enemy, effects []enemyDeathEffect) (int, int, byte) {
+func movePlayerHeld(held map[rune]bool, x, y int, facing byte, movementSpeed, width, height int, foes []enemy, effects []enemyDeathEffect, water []waterPool) (int, int, byte) {
 	dx, dy := 0, 0
 	if held['a'] != held['d'] {
 		if held['a'] {
@@ -1112,11 +1141,11 @@ func movePlayerHeld(held map[rune]bool, x, y int, facing byte, movementSpeed, wi
 	step := max(movementSpeed, 1)
 	targetX := x + dx*horizontalMovementScale()*step
 	targetY := y + dy*step
-	x, y = movePlayerAlongPath(x, y, targetX, targetY, width, height, foes, effects)
+	x, y = movePlayerAlongPath(x, y, targetX, targetY, width, height, foes, effects, water)
 	return x, y, facing
 }
 
-func movePlayerAlongPath(x, y, targetX, targetY, width, height int, foes []enemy, effects []enemyDeathEffect) (int, int) {
+func movePlayerAlongPath(x, y, targetX, targetY, width, height int, foes []enemy, effects []enemyDeathEffect, water []waterPool) (int, int) {
 	targetX, targetY = keepPlayerInChamber(targetX, targetY, width, height)
 	deltaX, deltaY := abs(targetX-x), abs(targetY-y)
 	stepX, stepY := 1, 1
@@ -1138,11 +1167,47 @@ func movePlayerAlongPath(x, y, targetX, targetY, width, height int, foes []enemy
 			error += deltaX
 			y += stepY
 		}
-		if playerBlockedByEnemy(x, y, previousX, previousY, foes, effects) {
+		if playerBlockedByWater(x, y, water) || playerBlockedByEnemy(x, y, previousX, previousY, foes, effects) {
 			return previousX, previousY
 		}
 	}
 	return x, y
+}
+
+func playerBlockedByWater(x, y int, water []waterPool) bool {
+	for _, pool := range water {
+		if pool.contains(x, y) {
+			return true
+		}
+	}
+	return false
+}
+
+func playerPathBlockedByWater(x, y, targetX, targetY int, water []waterPool) bool {
+	deltaX, deltaY := abs(targetX-x), abs(targetY-y)
+	stepX, stepY := 1, 1
+	if x > targetX {
+		stepX = -1
+	}
+	if y > targetY {
+		stepY = -1
+	}
+	error := deltaX - deltaY
+	for x != targetX || y != targetY {
+		doubleError := 2 * error
+		if doubleError > -deltaY {
+			error -= deltaY
+			x += stepX
+		}
+		if doubleError < deltaX {
+			error += deltaX
+			y += stepY
+		}
+		if playerBlockedByWater(x, y, water) {
+			return true
+		}
+	}
+	return false
 }
 
 func playerBlockedByEnemy(x, y, previousX, previousY int, foes []enemy, effects []enemyDeathEffect) bool {

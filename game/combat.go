@@ -78,13 +78,13 @@ func dashDirection(facing byte) (int, int) {
 	return dx, dy
 }
 
-func advanceDash(hero *player, foes []enemy, width, height int) (int, int, int, []int) {
+func advanceDash(hero *player, foes []enemy, width, height int, water []waterPool) (int, int, int, []int) {
 	x, y := hero.x, hero.y
 	// Cover three world cells per movement tick, checking every cell on the
 	// segment so enemies along the dash path are hit even at high speed.
 	for step := 0; step < 3 && hero.dashRemaining > 0; step++ {
 		nextX, nextY := keepPlayerInChamber(x+hero.dashDX, y+hero.dashDY, width, height)
-		if nextX == x && nextY == y {
+		if (nextX == x && nextY == y) || playerPathBlockedByWater(x, y, nextX, nextY, water) {
 			hero.dashRemaining = 0
 			break
 		}
