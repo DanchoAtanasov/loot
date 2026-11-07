@@ -151,13 +151,13 @@ type keyEvent struct {
 	tracked bool
 }
 
-func wizardPosition(worldWidth, width, height int) (int, int) {
-	worldLeft, _, top, bottom := chamberBounds(worldWidth, height)
+func wizardPosition(worldWidth, worldHeight, width int) (int, int) {
+	worldLeft, _, top, bottom := chamberBounds(worldWidth, worldHeight)
 	return worldLeft + width/2 - 12, (top + bottom) / 2
 }
 
-func isNearWizard(hero player, worldWidth, width, height int) bool {
-	wizardX, wizardY := wizardPosition(worldWidth, width, height)
+func isNearWizard(hero player, worldWidth, worldHeight, width int) bool {
+	wizardX, wizardY := wizardPosition(worldWidth, worldHeight, width)
 	return abs(hero.x-wizardX) <= 8 && abs(hero.y-wizardY) <= 3
 }
 
@@ -246,10 +246,11 @@ func Run() {
 
 	width, height := readTerminalSize()
 	worldWidth := width * 4
-	left, _, top, bottom := chamberBounds(worldWidth, height)
-	playerX, playerY := left+2, (top+bottom)/2
-	bushes := scatterBushes(worldWidth, height)
-	waters := scatterWater(worldWidth, height)
+	worldHeight := height * 4
+	left, _, top, bottom := chamberBounds(worldWidth, worldHeight)
+	playerX, playerY := left+width/2, (top+bottom)/2
+	bushes := scatterBushes(worldWidth, worldHeight)
+	waters := scatterWater(worldWidth, worldHeight)
 	hero := player{
 		Player:   models.DefaultPlayer,
 		weapon:   items.Weapon{},
@@ -259,8 +260,9 @@ func Run() {
 		facing:   's',
 		lastMove: time.Now(),
 	}
+	cameraU, cameraV := hero.x-hero.y, (hero.x+hero.y)/2
 	stage := 1
-	foes := spawnStageEnemies(worldWidth, height, stage, playerY)
+	foes := spawnStageEnemies(worldWidth, worldHeight, stage, playerY)
 	stageTransitionUntil := time.Time{}
 	deathEffects := make([]enemyDeathEffect, 0)
 	flyingSlashes := make([]flyingSlash, 0, 1)
@@ -291,7 +293,7 @@ func Run() {
 	for {
 		// Refresh the bounds and keep the characters inside the chamber.
 		width, height = readTerminalSize()
-		hero.x, hero.y = keepPlayerInChamber(hero.x, hero.y, worldWidth, height)
+		hero.x, hero.y = keepPlayerInChamber(hero.x, hero.y, worldWidth, worldHeight)
 
 		// Keep combat and world timers frozen while the game is paused.
 		now := time.Now()
@@ -301,16 +303,16 @@ func Run() {
 			if questActive {
 				questCompleted = false
 			}
-			left, _, top, bottom = chamberBounds(worldWidth, height)
-			hero.x, hero.y = keepPlayerInChamber(left+2, (top+bottom)/2, worldWidth, height)
+			left, _, top, bottom = chamberBounds(worldWidth, worldHeight)
+			hero.x, hero.y = keepPlayerInChamber(left+width/2, (top+bottom)/2, worldWidth, worldHeight)
 			hero.attackStarted = time.Time{}
-			bushes = scatterBushes(worldWidth, height)
-			waters = scatterWater(worldWidth, height)
+			bushes = scatterBushes(worldWidth, worldHeight)
+			waters = scatterWater(worldWidth, worldHeight)
 			pickups = nil
 			gearDrops = nil
 			deathEffects = nil
 			flyingSlashes = nil
-			foes = spawnStageEnemies(worldWidth, height, stage, hero.y)
+			foes = spawnStageEnemies(worldWidth, worldHeight, stage, hero.y)
 			stageTransitionUntil = time.Time{}
 			stagePending = false
 			hero.lastMove = now
@@ -324,7 +326,7 @@ func Run() {
 		}
 		if !paused && !stagePending && hero.pendingLevelChoices == 0 {
 			for i := range foes {
-				foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, worldWidth, height, foes[i].tank)
+				foes[i].x, foes[i].y = keepEnemyInChamber(foes[i].x, foes[i].y, worldWidth, worldHeight, foes[i].tank)
 			}
 			attackTarget, defeated := resolveBattle(&hero, foes, now)
 			if attackTarget >= 0 {
@@ -340,7 +342,7 @@ func Run() {
 					pickups = append(pickups, healthPickup{x: foe.x, y: foe.y})
 				}
 				if rand.IntN(100) < foe.Enemy.DropChance() {
-					dropX, dropY := weaponDropPosition(foe, hero, worldWidth, height)
+					dropX, dropY := weaponDropPosition(foe, hero, worldWidth, worldHeight)
 					drop := gearDrop{x: dropX, y: dropY}
 					if rand.IntN(2) == 0 {
 						drop.weapon = items.DropItem()
@@ -406,7 +408,7 @@ func Run() {
 		if !stageTransitionUntil.IsZero() {
 			transitionSeconds = int(math.Ceil(time.Until(stageTransitionUntil).Seconds()))
 		}
-		nearWizard := isNearWizard(hero, worldWidth, width, height)
+		nearWizard := isNearWizard(hero, worldWidth, worldHeight, width)
 		now = time.Now()
 		showHeroHi := now.Before(heroHiUntil)
 		showWizardHi := !showHeroHi && now.Before(wizardHiUntil)
@@ -414,7 +416,18 @@ func Run() {
 		if !wizardQuestUntil.IsZero() && !now.Before(wizardQuestUntil) {
 			questActive = true
 		}
-		fmt.Print(renderDungeon(hero, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, waters, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted))
+		heroU, heroV := hero.x-hero.y, (hero.x+hero.y)/2
+		if heroU-cameraU > width/4 {
+			cameraU = heroU - width/4
+		} else if heroU-cameraU < -width/4 {
+			cameraU = heroU + width/4
+		}
+		if heroV-cameraV > height/4 {
+			cameraV = heroV - height/4
+		} else if heroV-cameraV < -height/4 {
+			cameraV = heroV + height/4
+		}
+		fmt.Print(renderDungeon(hero, width, height, worldWidth, worldHeight, cameraU, cameraV, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, waters, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -451,7 +464,7 @@ func Run() {
 				continue
 			}
 			if event.key == ' ' && event.pressed {
-				if isNearWizard(hero, worldWidth, width, height) {
+				if isNearWizard(hero, worldWidth, worldHeight, width) {
 					now := time.Now()
 					heroHiUntil = now.Add(650 * time.Millisecond)
 					wizardHiUntil = now.Add(1300 * time.Millisecond)
@@ -504,10 +517,8 @@ func Run() {
 					hero.dashRemaining = 0
 					hero.lastMove = time.Time{}
 					clear(heldKeys)
-					worldLeft, worldRight, _, _ := chamberBounds(worldWidth, height)
-					viewLeft := min(max(hero.x-width/2, worldLeft), max(worldLeft, worldRight-width+1))
 					for i := range foes {
-						foes[i].ultimateTarget = enemyIsOnScreen(foes[i], viewLeft, width, height)
+						foes[i].ultimateTarget = enemyIsInIsoView(foes[i], cameraU, cameraV, width, height)
 						if foes[i].ultimateTarget {
 							foes[i].hooked = false
 						}
@@ -523,14 +534,14 @@ func Run() {
 				continue
 			}
 			if hero.Health > 0 && event.pressed {
-				hero.x, hero.y, hero.facing = movePlayer(byte(event.key), hero.x, hero.y, hero.facing, hero.MovementSpeed, worldWidth, height, foes, deathEffects, waters)
+				hero.x, hero.y, hero.facing = movePlayer(byte(event.key), hero.x, hero.y, hero.facing, hero.MovementSpeed, worldWidth, worldHeight, foes, deathEffects, waters)
 				hero.lastMove = time.Now()
 			}
 		case now := <-ticker.C:
 			if !paused && stageTransitionUntil.IsZero() && hero.pendingLevelChoices == 0 {
-				advanceHook(foes, hero, worldWidth, height)
+				advanceHook(foes, hero, worldWidth, worldHeight)
 				var defeated []int
-				flyingSlashes, defeated = advanceFlyingSlashes(flyingSlashes, foes, worldWidth, height, &hero)
+				flyingSlashes, defeated = advanceFlyingSlashes(flyingSlashes, foes, worldWidth, worldHeight, &hero)
 				bossDefeated := false
 				for _, index := range defeated {
 					foe := foes[index]
@@ -549,10 +560,10 @@ func Run() {
 			}
 			if !paused && stageTransitionUntil.IsZero() && hero.pendingLevelChoices == 0 && hero.Health > 0 && now.Sub(lastStep) >= 40*time.Millisecond {
 				if now.Before(hero.ultimateUntil) {
-					advanceUltimate(foes, hero, worldWidth, height)
+					advanceUltimate(foes, hero, worldWidth, worldHeight)
 				} else if hero.dashRemaining > 0 {
 					var defeated []int
-					hero.x, hero.y, hero.dashRemaining, defeated = advanceDash(&hero, foes, worldWidth, height, waters)
+					hero.x, hero.y, hero.dashRemaining, defeated = advanceDash(&hero, foes, worldWidth, worldHeight, waters)
 					bossDefeated := false
 					for _, index := range defeated {
 						foe := foes[index]
@@ -573,7 +584,7 @@ func Run() {
 				} else {
 					// Advance held movement in single-cell increments. Rendering and the
 					// run cycle continue independently at 60 fps between movement ticks.
-					nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, 1, worldWidth, height, foes, deathEffects, waters)
+					nextX, nextY, nextFacing := movePlayerHeld(heldKeys, hero.x, hero.y, hero.facing, 1, worldWidth, worldHeight, foes, deathEffects, waters)
 					if nextX != hero.x || nextY != hero.y {
 						hero.x, hero.y, hero.facing = nextX, nextY, nextFacing
 						hero.lastMove = now
@@ -583,11 +594,11 @@ func Run() {
 			}
 		case <-enemyTicker.C:
 			if !paused && hero.pendingLevelChoices == 0 && !time.Now().Before(hero.ultimateUntil) {
-				stepEnemyPacks(foes, hero.x, hero.y, worldWidth, height, time.Now())
+				stepEnemyPacks(foes, hero.x, hero.y, worldWidth, worldHeight, time.Now())
 			}
 		case <-pickupTicker.C:
 			if !paused && stageTransitionUntil.IsZero() && hero.pendingLevelChoices == 0 {
-				pickups = append(pickups, spawnHealthPickup(worldWidth, height))
+				pickups = append(pickups, spawnHealthPickup(worldWidth, worldHeight))
 			}
 		}
 	}
@@ -1082,20 +1093,23 @@ func keepPlayerInChamber(x, y, width, height int) (int, int) {
 
 func movePlayer(key byte, x, y int, facing byte, movementSpeed, width, height int, foes []enemy, effects []enemyDeathEffect, water []waterPool) (int, int, byte) {
 	step := max(movementSpeed, 1)
-	horizontalStep := horizontalMovementScale() * step
 	targetX, targetY := x, y
 	switch key {
 	case 'w', 'W':
+		targetX -= step
 		targetY -= step
 		facing = 'w'
 	case 's', 'S':
+		targetX += step
 		targetY += step
 		facing = 's'
 	case 'a', 'A':
-		targetX -= horizontalStep
+		targetX -= step
+		targetY += step
 		facing = 'a'
 	case 'd', 'D':
-		targetX += horizontalStep
+		targetX += step
+		targetY -= step
 		facing = 'd'
 	}
 	x, y = movePlayerAlongPath(x, y, targetX, targetY, width, height, foes, effects, water)
@@ -1141,8 +1155,11 @@ func movePlayerHeld(held map[rune]bool, x, y int, facing byte, movementSpeed, wi
 		facing = 's'
 	}
 	step := max(movementSpeed, 1)
-	targetX := x + dx*horizontalMovementScale()*step
-	targetY := y + dy*step
+	// WASD describes screen axes. Convert those directions to world axes,
+	// which are diagonally aligned with the isometric projection.
+	worldDX, worldDY := dx+dy, dy-dx
+	targetX := x + worldDX*step
+	targetY := y + worldDY*step
 	x, y = movePlayerAlongPath(x, y, targetX, targetY, width, height, foes, effects, water)
 	return x, y, facing
 }

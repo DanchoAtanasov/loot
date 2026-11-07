@@ -51,7 +51,21 @@ func renderLoadingScreen(width, height int) string {
 	return frame.String()
 }
 
-func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, waters []waterPool, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted bool) string {
+// isoScreenPoint projects the game's x/y world plane into a terminal-friendly
+// isometric view. Movement and collision continue to use the original plane.
+func isoScreenPoint(x, y, cameraU, cameraV, width, height int) (int, int) {
+	return width/2 + x - y - cameraU, max(2, height/2+(x+y)/2-cameraV)
+}
+
+func kittySpritePosition(x, y, cols, rows, width, height int) (int, int, bool) {
+	column, row := x-cols/2, y-rows/2
+	if column < 1 || column+cols-1 > width || row < 3 || row+rows-1 >= height {
+		return 0, 0, false
+	}
+	return row, column, true
+}
+
+func renderDungeon(hero player, width, height, worldWidth, worldHeight, cameraU, cameraV, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, waters []waterPool, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -60,48 +74,61 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 		}
 	}
 
-	worldLeft, worldRight, top, bottom := chamberBounds(worldWidth, height)
-	viewLeft := min(max(hero.x-width/2, worldLeft), max(worldLeft, worldRight-width+1))
-	left := max(worldLeft-viewLeft, 0)
-	right := min(worldRight-viewLeft, width-1)
-	for y := top; y <= bottom; y++ {
-		for x := left; x <= right; x++ {
-			border := (viewLeft+x == worldLeft || viewLeft+x == worldRight) || y == top || y == bottom
+	worldLeft, worldRight, top, bottom := chamberBounds(worldWidth, worldHeight)
+	viewLeft := 0
+	left, right := 0, width-1
+	screenTop, screenBottom := 2, height-1
+	viewRange := width + height
+	for y := max(top, hero.y-viewRange); y <= min(bottom, hero.y+viewRange); y++ {
+		for worldX := max(worldLeft, hero.x-viewRange); worldX <= min(worldRight, hero.x+viewRange); worldX++ {
+			x, screenY := isoScreenPoint(worldX, y, cameraU, cameraV, width, height)
+			if x < left || x > right || screenY < 2 || screenY >= height {
+				continue
+			}
+			border := (worldX == worldLeft || worldX == worldRight) || y == top || y == bottom
 			if border {
 				wallColor := "\x1b[38;2;174;181;192m"
-				if viewLeft+x == worldRight {
+				if worldX == worldRight {
 					wallColor = "\x1b[38;2;255;190;92m"
 				}
-				grid[y][x] = tile{'█', wallColor}
+				grid[screenY][x] = tile{'◆', wallColor}
 			} else {
-				grid[y][x] = tile{'·', "\x1b[38;2;66;71;78m"}
+				glyph := '·'
+				if (worldX+y)%2 == 0 {
+					glyph = '∙'
+				}
+				grid[screenY][x] = tile{glyph, "\x1b[38;2;66;71;78m"}
 			}
 		}
 	}
+	project := func(x, y int) (int, int) { return isoScreenPoint(x, y, cameraU, cameraV, width, height) }
+	projectedFoes := append([]enemy(nil), foes...)
+	for i := range projectedFoes {
+		projectedFoes[i].x, projectedFoes[i].y = project(foes[i].x, foes[i].y)
+	}
+	projectedDrops := append([]gearDrop(nil), gearDrops...)
+	for i := range projectedDrops {
+		projectedDrops[i].x, projectedDrops[i].y = project(gearDrops[i].x, gearDrops[i].y)
+	}
 	for _, plant := range bushes {
-		x := plant.x - viewLeft
-		if x >= left && x <= right && plant.y > top && plant.y < bottom {
-			grid[plant.y][x] = tile{'♣', "\x1b[38;2;93;147;83m"}
-			if x+1 <= right {
-				grid[plant.y][x+1] = tile{'♧', "\x1b[38;2;115;164;92m"}
-			}
-			if plant.y+1 < bottom && x+1 <= right {
-				grid[plant.y+1][x+1] = tile{'♣', "\x1b[38;2;77;128;75m"}
-			}
+		x, y := project(plant.x, plant.y)
+		if x >= left && x <= right && y > 2 && y < height {
+			grid[y][x] = tile{'♣', "\x1b[38;2;93;147;83m"}
 		}
 	}
 
 	if right-left >= 12 && bottom-top >= 8 {
-		midX, midY := (worldLeft+worldRight)/2-viewLeft, (top+bottom)/2
-		for _, p := range [][2]int{{worldLeft + 4 - viewLeft, top + 3}, {worldRight - 4 - viewLeft, top + 3}, {worldLeft + 4 - viewLeft, bottom - 3}, {worldRight - 4 - viewLeft, bottom - 3}} {
-			if p[0] > left && p[0] < right {
-				grid[p[1]][p[0]] = tile{'╬', "\x1b[38;2;145;132;103m"}
+		midX, midY := project((worldLeft+worldRight)/2, (top+bottom)/2)
+		for _, worldPoint := range [][2]int{{worldLeft + 4, top + 3}, {worldRight - 4, top + 3}, {worldLeft + 4, bottom - 3}, {worldRight - 4, bottom - 3}} {
+			px, py := project(worldPoint[0], worldPoint[1])
+			if px > left && px < right && py > 2 && py < height {
+				grid[py][px] = tile{'╬', "\x1b[38;2;145;132;103m"}
 			}
 		}
 		// An old flagstone circle marks the center of the room.
-		if midX >= left && midX <= right {
+		if midX >= left && midX <= right && midY > 2 && midY < height {
 			for _, p := range [][2]int{{midX, midY}, {midX - 1, midY}, {midX + 1, midY}, {midX, midY - 1}, {midX, midY + 1}} {
-				if p[0] >= left && p[0] <= right {
+				if p[0] >= left && p[0] <= right && p[1] > 2 && p[1] < height {
 					grid[p[1]][p[0]] = tile{'◈', "\x1b[38;2;136;113;78m"}
 				}
 			}
@@ -109,7 +136,7 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 	}
 	for _, pool := range waters {
 		for y := max(pool.y-pool.ry, top+1); y <= min(pool.y+pool.ry, bottom-1); y++ {
-			for x := max(pool.x-pool.rx, viewLeft+left); x <= min(pool.x+pool.rx, viewLeft+right); x++ {
+			for x := max(pool.x-pool.rx, worldLeft); x <= min(pool.x+pool.rx, worldRight); x++ {
 				if !pool.contains(x, y) {
 					continue
 				}
@@ -117,28 +144,31 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 				if (x+y)%3 == 0 {
 					glyph = '~'
 				}
-				grid[y][x-viewLeft] = tile{glyph, "\x1b[38;2;55;143;195m"}
+				px, py := project(x, y)
+				if px >= left && px <= right && py > 2 && py < height {
+					grid[py][px] = tile{glyph, "\x1b[38;2;55;143;195m"}
+				}
 			}
 		}
 	}
 	drawHUD(grid, hero, stage, foes, gearDrops)
-	drawBossHealthBars(grid, foes, viewLeft, left, right)
+	drawBossHealthBars(grid, projectedFoes, viewLeft, left, right)
 	visibleEffects := make([]enemyDeathEffect, 0, len(deathEffects))
 	for _, effect := range deathEffects {
-		effect.x -= viewLeft
+		effect.x, effect.y = project(effect.x, effect.y)
 		visibleEffects = append(visibleEffects, effect)
 	}
-	drawEnemyDeathEffects(grid, visibleEffects, left, right, top, bottom, time.Now())
-	for _, drop := range gearDrops {
-		drop.x -= viewLeft
-		drawGearDrop(grid, drop, left, right, top, bottom)
+	drawEnemyDeathEffects(grid, visibleEffects, left, right, screenTop, screenBottom, time.Now())
+	for _, drop := range projectedDrops {
+		drawGearDrop(grid, drop, left, right, screenTop, screenBottom)
 	}
-	drawLevelUpEffect(grid, hero.x-viewLeft, hero.y, hero.levelUpStarted, time.Now(), left, right, top, bottom)
+	heroScreenX, heroScreenY := project(hero.x, hero.y)
+	drawLevelUpEffect(grid, heroScreenX, heroScreenY, hero.levelUpStarted, time.Now(), left, right, screenTop, screenBottom)
 	// The player is rendered as a Kitty graphics placement after the text frame.
 	if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) {
 		drawHero, drawDrop := hero, drop
-		drawHero.x -= viewLeft
-		drawDrop.x -= viewLeft
+		drawHero.x, drawHero.y = project(hero.x, hero.y)
+		drawDrop.x, drawDrop.y = project(drop.x, drop.y)
 		drawGearOverlay(grid, drawHero, drawDrop)
 	}
 	if showEquipment {
@@ -177,39 +207,37 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 	frame.WriteString("\x1b[0m\x1b[K\x1b[?2026l")
 	if !showEquipment {
 		for index, pickup := range pickups {
-			x := pickup.x - viewLeft
-			if x+healthImageCols/2 < 0 || x-healthImageCols/2 >= width {
+			x, y := project(pickup.x, pickup.y)
+			row, column, visible := kittySpritePosition(x, y, healthImageCols, healthImageRows, width, height)
+			if !visible {
 				continue
 			}
-			row := max(pickup.y-healthImageRows/2, 3)
-			col := max(x-healthImageCols/2, 1)
-			frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", row, col, healthImageID, index+1, healthImageCols, healthImageRows))
+			frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", row, column, healthImageID, index+1, healthImageCols, healthImageRows))
 		}
 	}
-	for index, foe := range foes {
+	for index, foe := range projectedFoes {
 		if foe.Health <= 0 {
 			continue
 		}
-		x := foe.x - viewLeft
-		if x+heroImageCols/2 < 0 || x-heroImageCols/2 >= width {
-			continue
-		}
+		x := foe.x
 		imageID, cols, rows := enemySpriteSize(foe)
 		y := foe.y
 		if foe.tank {
 			x++
 			y++
 		}
-		row := max(y-rows/2, 3) // Keep enemy art below the two HUD rows.
-		frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", row, max(x-cols/2, 1), imageID, index+1, cols, rows))
+		row, column, visible := kittySpritePosition(x, y, cols, rows, width, height)
+		if !visible {
+			continue
+		}
+		frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=%d,c=%d,r=%d,q=2\x1b\\", row, column, imageID, index+1, cols, rows))
 	}
-	wizardX := worldLeft + width/2 - 12 - viewLeft
-	wizardY := (top + bottom) / 2
-	if wizardX+wizardImageCols/2 >= left && wizardX-wizardImageCols/2 <= right {
-		frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(wizardY-wizardImageRows/2, 3), max(wizardX-wizardImageCols/2, 1), wizardImageID, wizardImageCols, wizardImageRows))
+	wizardX, wizardY := project(worldLeft+width/2-12, (top+bottom)/2)
+	if row, column, visible := kittySpritePosition(wizardX, wizardY, wizardImageCols, wizardImageRows, width, height); visible {
+		frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", row, column, wizardImageID, wizardImageCols, wizardImageRows))
 	}
 	if showHeroHi {
-		drawSpeechText(&frame, "Hi!", "\x1b[1;38;2;140;220;255m", hero.x-viewLeft, max(hero.y-heroImageRows/2-1, 3), width)
+		drawSpeechText(&frame, "Hi!", "\x1b[1;38;2;140;220;255m", heroScreenX, max(heroScreenY-heroImageRows/2-1, 3), width)
 	}
 	if showWizardHi || showWizardQuest || (nearWizard && !showHeroHi) {
 		message := "Press Space"
@@ -240,11 +268,10 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 			imageID += 5
 		}
 	}
-	heroScreenX := hero.x - viewLeft
-	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(hero.y-heroImageRows/2, 1), max(heroScreenX-heroImageCols/2, 1), imageID, heroImageCols, heroImageRows))
+	frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", max(heroScreenY-heroImageRows/2, 1), max(heroScreenX-heroImageCols/2, 1), imageID, heroImageCols, heroImageRows))
 	for _, slash := range flyingSlashes {
 		for _, mark := range slashArt(slash) {
-			x, y := slash.x+mark.dx-viewLeft, slash.y+mark.dy
+			x, y := project(slash.x+mark.dx, slash.y+mark.dy)
 			if x < 0 || x >= width || y < 1 || y > height {
 				continue
 			}
@@ -258,7 +285,9 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 				foeX++
 				foeY++
 			}
-			renderHookLine(&frame, hero.x-viewLeft, hero.y, foeX-viewLeft, foeY, width, height)
+			hx, hy := project(hero.x, hero.y)
+			fx, fy := project(foeX, foeY)
+			renderHookLine(&frame, hx, hy, fx, fy, width, height)
 		}
 	}
 	frame.WriteString(renderDashOverlay(hero, width, height))
@@ -266,7 +295,46 @@ func renderDungeon(hero player, width, height, worldWidth, stage, runningFrame, 
 	if questActive {
 		frame.WriteString(renderQuestOverlay(width, questCompleted))
 	}
+	// Kitty placements are emitted after the scene text, so repaint the HUD on
+	// top of them to keep the screen UI stationary and legible.
+	for row := 0; row < min(2, len(grid)); row++ {
+		paintGridRegion(&frame, grid, row, row, 0, width-1)
+	}
+	if showEquipment && height >= 19 && width >= 56 {
+		panelWidth := min(70, width-2)
+		panelLeft, panelTop := (width-panelWidth)/2, (height-18)/2
+		paintGridRegion(&frame, grid, panelTop, panelTop+17, panelLeft, panelLeft+panelWidth-1)
+	} else if drop, ok := nearestGearDrop(hero, gearDrops); ok && gearDropInRange(hero, drop) && height >= 15 && width >= 14 {
+		panelWidth := min(34, width-2)
+		panelLeft, panelTop := width-panelWidth-1, 3
+		if panelTop+12 >= height {
+			panelTop = max(2, height-13)
+		}
+		paintGridRegion(&frame, grid, panelTop, panelTop+12, panelLeft, panelLeft+panelWidth-1)
+	}
 	return frame.String()
+}
+
+func paintGridRegion(frame *bytes.Buffer, grid [][]tile, top, bottom, left, right int) {
+	top, bottom = max(top, 0), min(bottom, len(grid)-1)
+	for row := top; row <= bottom; row++ {
+		left, end := max(left, 0), min(right, len(grid[row])-1)
+		if left > end {
+			continue
+		}
+		fmt.Fprintf(frame, "\x1b[%d;%dH", row+1, left+1)
+		lastColor := ""
+		for column := left; column <= end; column++ {
+			cell := grid[row][column]
+			if cell.color != lastColor {
+				frame.WriteString("\x1b[0m")
+				frame.WriteString(cell.color)
+				lastColor = cell.color
+			}
+			frame.WriteRune(cell.glyph)
+		}
+		frame.WriteString("\x1b[0m")
+	}
 }
 
 func renderQuestOverlay(width int, complete bool) string {
@@ -293,13 +361,12 @@ func drawBossHealthBars(grid [][]tile, foes []enemy, viewLeft, left, right int) 
 			y++
 		}
 		_, columns, rows := enemySpriteSize(foe)
-		spriteTop := max(y-rows/2, 3)
-		spriteBottom := spriteTop + rows - 1
-		if x+columns/2 < left || x-columns/2 > right || spriteTop > len(grid) || spriteBottom < 3 {
+		spriteTop, _, visible := kittySpritePosition(x, y, columns, rows, len(grid[0]), len(grid))
+		if !visible {
 			continue
 		}
 		barTerminalRow := spriteTop - 1
-		if barTerminalRow < 3 {
+		if barTerminalRow < 4 {
 			continue
 		}
 		barRow := barTerminalRow - 1
@@ -819,7 +886,7 @@ func drawWeaponPanelBorder(grid [][]tile, row, left, width int, color string) {
 }
 
 func drawGearDrop(grid [][]tile, drop gearDrop, left, right, top, bottom int) {
-	if drop.x <= left || drop.x >= right || drop.y <= top || drop.y >= bottom {
+	if drop.x <= left || drop.x >= right || drop.y <= top || drop.y >= bottom || drop.y < 0 || drop.y >= len(grid) || drop.x < 0 || drop.x >= len(grid[drop.y]) {
 		return
 	}
 	glyph, tier := 'w', drop.weapon.Tier

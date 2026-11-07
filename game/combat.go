@@ -54,26 +54,23 @@ func dashDirection(facing byte) (int, int) {
 	dx, dy := 0, 0
 	switch facing {
 	case 'w':
-		dy = -1
-	case 's':
-		dy = 1
-	case 'a':
-		dx = -1
-	case 'd':
-		dx = 1
-	case 'q':
 		dx, dy = -1, -1
-	case 'e':
-		dx, dy = 1, -1
-	case 'z':
-		dx, dy = -1, 1
-	case 'c':
+	case 's':
 		dx, dy = 1, 1
+	case 'a':
+		dx, dy = -1, 1
+	case 'd':
+		dx, dy = 1, -1
+	case 'q':
+		dx, dy = -2, 0
+	case 'e':
+		dx, dy = 0, -2
+	case 'z':
+		dx, dy = 0, 2
+	case 'c':
+		dx, dy = 2, 0
 	default:
 		dy = 1
-	}
-	if dx != 0 {
-		dx *= horizontalMovementScale()
 	}
 	return dx, dy
 }
@@ -217,6 +214,18 @@ func enemyIsOnScreen(foe enemy, viewLeft, width, height int) bool {
 	return x >= viewLeft && x < viewLeft+width && y >= 1 && y < height
 }
 
+func enemyIsInIsoView(foe enemy, cameraU, cameraV, width, height int) bool {
+	x, y := foe.x, foe.y
+	if foe.tank {
+		x++
+		y++
+	}
+	x, y = isoScreenPoint(x, y, cameraU, cameraV, width, height)
+	_, columns, rows := enemySpriteSize(foe)
+	_, _, visible := kittySpritePosition(x, y, columns, rows, width, height)
+	return visible
+}
+
 func advanceUltimate(foes []enemy, hero player, width, height int) {
 	for i := range foes {
 		foe := &foes[i]
@@ -287,22 +296,23 @@ func facingEnemy(hero player, foe enemy) byte {
 		enemyY++
 	}
 	dx, dy := enemyX-hero.x, enemyY-hero.y
+	screenDX, screenDY := sign(dx-dy), sign(dx+dy)
 	switch {
-	case dx < 0 && dy < 0:
+	case screenDX < 0 && screenDY < 0:
 		return 'q'
-	case dx > 0 && dy < 0:
+	case screenDX > 0 && screenDY < 0:
 		return 'e'
-	case dx < 0 && dy > 0:
+	case screenDX < 0 && screenDY > 0:
 		return 'z'
-	case dx > 0 && dy > 0:
+	case screenDX > 0 && screenDY > 0:
 		return 'c'
-	case dx < 0:
+	case screenDX < 0:
 		return 'a'
-	case dx > 0:
+	case screenDX > 0:
 		return 'd'
-	case dy < 0:
+	case screenDY < 0:
 		return 'w'
-	case dy > 0:
+	case screenDY > 0:
 		return 's'
 	default:
 		return hero.facing
