@@ -1,0 +1,25 @@
+# Dialog sections are plain text. Start a section with [name], then add one
+# line per speaker as `Speaker: words`. Press Space near the wizard to advance.
+
+[intro]
+Hero: Hello. What is this place?
+Wizard: Oh my, you scared me stranger.
+Wizard: Used to be my home..
+Wizard: Now, a dungeon, I guess.
+Wizard: There is a horrible boss somewhere. Please, help me
+Hero: Don't worry. I'll deal with it.
+
+[quest]
+Wizard: The boss is still somewhere in this dungeon. Keep searching.
+
+[quest_complete]
+Wizard: You defeated the boss. The dungeon is safe again.
+
+[prompt]
+Wizard: Press Space to talk
+
+[quest_status]
+Defeat the boss
+
+[quest_complete_status]
+Boss defeated +100 XP

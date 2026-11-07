@@ -177,6 +177,11 @@ func completeBossQuest(hero *player, questActive bool, questCompleted *bool) {
 func Run() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	dialogues, err := loadDialogues("assets/dialogue.txt")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not load dialogue: %v\n", err)
+		return
+	}
 
 	originalTerminal, err := enableRawMode()
 	if err != nil {
@@ -276,11 +281,11 @@ func Run() {
 	gearDrops := make([]gearDrop, 0)
 	showEquipment := false
 	paused := false
-	heroHiUntil := time.Time{}
-	wizardHiUntil := time.Time{}
-	wizardQuestUntil := time.Time{}
 	questActive := false
 	questCompleted := false
+	var activeDialogue []dialogueLine
+	dialogueIndex := 0
+	questAfterDialogue := false
 	keys := make(chan keyEvent, 32)
 	heldKeys := make(map[rune]bool)
 	mouseX, mouseY, mouseAim := 0, 0, false
@@ -321,6 +326,9 @@ func Run() {
 			foes = spawnStageEnemies(worldWidth, worldHeight, stage, hero.y)
 			stageTransitionUntil = time.Time{}
 			stagePending = false
+			activeDialogue = nil
+			dialogueIndex = 0
+			questAfterDialogue = false
 			hero.lastMove = now
 			lastStep = now
 		}
@@ -416,11 +424,9 @@ func Run() {
 		}
 		nearWizard := isNearWizard(hero, worldWidth, worldHeight, width)
 		now = time.Now()
-		showHeroHi := now.Before(heroHiUntil)
-		showWizardHi := !showHeroHi && now.Before(wizardHiUntil)
-		showWizardQuest := !showHeroHi && !showWizardHi && now.Before(wizardQuestUntil) && !wizardQuestUntil.IsZero()
-		if !wizardQuestUntil.IsZero() && !now.Before(wizardQuestUntil) {
-			questActive = true
+		var currentDialogue *dialogueLine
+		if dialogueIndex >= 0 && dialogueIndex < len(activeDialogue) {
+			currentDialogue = &activeDialogue[dialogueIndex]
 		}
 		heroU, heroV := hero.x-hero.y, (hero.x+hero.y)/2
 		if heroU-cameraU > width/4 {
@@ -433,7 +439,7 @@ func Run() {
 		} else if heroV-cameraV < -height/4 {
 			cameraV = heroV + height/4
 		}
-		fmt.Print(renderDungeon(hero, width, height, worldWidth, worldHeight, cameraU, cameraV, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, waters, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted))
+		fmt.Print(renderDungeon(hero, width, height, worldWidth, worldHeight, cameraU, cameraV, stage, runningFrame, swingFrame, transitionSeconds, foes, pickups, gearDrops, deathEffects, flyingSlashes, bushes, waters, showEquipment, nearWizard, currentDialogue, dialogues, questActive, questCompleted))
 
 		// Handle shutdown, player input, frame timing, or enemy movement.
 		select {
@@ -480,15 +486,32 @@ func Run() {
 				}
 				continue
 			}
+			if len(activeDialogue) > 0 && event.key == ' ' && event.pressed {
+				dialogueIndex++
+				if dialogueIndex >= len(activeDialogue) {
+					activeDialogue = nil
+					dialogueIndex = 0
+					if questAfterDialogue {
+						questActive = true
+						questAfterDialogue = false
+					}
+				}
+				continue
+			}
 			if paused || !stageTransitionUntil.IsZero() {
 				continue
 			}
 			if event.key == ' ' && event.pressed {
 				if isNearWizard(hero, worldWidth, worldHeight, width) {
-					now := time.Now()
-					heroHiUntil = now.Add(650 * time.Millisecond)
-					wizardHiUntil = now.Add(1300 * time.Millisecond)
-					wizardQuestUntil = now.Add(2600 * time.Millisecond)
+					section := "quest"
+					if questCompleted {
+						section = "quest_complete"
+					} else if !questActive {
+						section = "intro"
+						questAfterDialogue = true
+					}
+					activeDialogue = dialogues[section]
+					dialogueIndex = 0
 					continue
 				}
 				gearDrops = pickupGearDrop(&hero, gearDrops)

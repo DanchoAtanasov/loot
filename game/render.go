@@ -65,7 +65,7 @@ func kittySpritePosition(x, y, cols, rows, width, height int) (int, int, bool) {
 	return row, column, true
 }
 
-func renderDungeon(hero player, width, height, worldWidth, worldHeight, cameraU, cameraV, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, waters []waterPool, showEquipment, nearWizard, showHeroHi, showWizardHi, showWizardQuest, questActive, questCompleted bool) string {
+func renderDungeon(hero player, width, height, worldWidth, worldHeight, cameraU, cameraV, stage, runningFrame, swingFrame, transitionSeconds int, foes []enemy, pickups []healthPickup, gearDrops []gearDrop, deathEffects []enemyDeathEffect, flyingSlashes []flyingSlash, bushes []bush, waters []waterPool, showEquipment, nearWizard bool, activeDialogue *dialogueLine, dialogues dialogueBook, questActive, questCompleted bool) string {
 	grid := make([][]tile, height)
 	for y := range grid {
 		grid[y] = make([]tile, width)
@@ -236,22 +236,7 @@ func renderDungeon(hero player, width, height, worldWidth, worldHeight, cameraU,
 	if row, column, visible := kittySpritePosition(wizardX, wizardY, wizardImageCols, wizardImageRows, width, height); visible {
 		frame.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b_Ga=p,i=%d,p=1,c=%d,r=%d,q=2\x1b\\", row, column, wizardImageID, wizardImageCols, wizardImageRows))
 	}
-	if showHeroHi {
-		drawSpeechText(&frame, "Hi!", "\x1b[1;38;2;140;220;255m", heroScreenX, max(heroScreenY-heroImageRows/2-1, 3), width)
-	}
-	if showWizardHi || showWizardQuest || (nearWizard && !showHeroHi) {
-		message := "Press Space"
-		messageColor := "\x1b[1;38;2;140;220;255m"
-		if showWizardHi {
-			message = "Hi!"
-			messageColor = "\x1b[1;38;2;255;226;150m"
-		} else if showWizardQuest {
-			message = "Kill the boss."
-			messageColor = "\x1b[1;38;2;255;226;150m"
-		}
-		messageRow := max(wizardY-wizardImageRows/2-1, 3)
-		drawSpeechText(&frame, message, messageColor, wizardX, messageRow, width)
-	}
+	frame.WriteString(renderDialogue(heroScreenX, heroScreenY, wizardX, wizardY, width, activeDialogue, dialogues["prompt"], nearWizard))
 	imageID := 1
 	if swingFrame >= 0 {
 		imageID = 2 + swingFrame
@@ -293,7 +278,7 @@ func renderDungeon(hero player, width, height, worldWidth, worldHeight, cameraU,
 	frame.WriteString(renderDashOverlay(hero, width, height))
 	frame.WriteString(renderLevelChoiceOverlay(hero, width, height))
 	if questActive {
-		frame.WriteString(renderQuestOverlay(width, questCompleted))
+		frame.WriteString(renderQuestOverlay(width, questCompleted, dialogues))
 	}
 	// Kitty placements are emitted after the scene text, so repaint the HUD on
 	// top of them to keep the screen UI stationary and legible.
@@ -335,18 +320,6 @@ func paintGridRegion(frame *bytes.Buffer, grid [][]tile, top, bottom, left, righ
 		}
 		frame.WriteString("\x1b[0m")
 	}
-}
-
-func renderQuestOverlay(width int, complete bool) string {
-	heading, objective := "QUEST", "Kill boss"
-	color := "\x1b[1;38;2;255;218;132m"
-	if complete {
-		heading, objective = "QUEST COMPLETE", "Boss defeated +100 XP"
-		color = "\x1b[1;38;2;115;207;174m"
-	}
-	headingColumn := max(width-len(heading)+1, 1)
-	objectiveColumn := max(width-len(objective)+1, 1)
-	return fmt.Sprintf("\x1b[3;%dH%s%s\x1b[4;%dH%s%s\x1b[0m", headingColumn, color, heading, objectiveColumn, color, objective)
 }
 
 func drawBossHealthBars(grid [][]tile, foes []enemy, viewLeft, left, right int) {
@@ -418,11 +391,6 @@ func renderLevelChoiceOverlay(hero player, width, height int) string {
 		overlay.WriteString(fmt.Sprintf("\x1b[%d;%dH\x1b[1;38;2;255;218;132m%s\x1b[0m", startRow+i, column, line))
 	}
 	return overlay.String()
-}
-
-func drawSpeechText(frame *bytes.Buffer, message, color string, centerX, row, width int) {
-	column := min(max(centerX-len(message)/2+1, 1), max(width-len(message)+1, 1))
-	fmt.Fprintf(frame, "\x1b[%d;%dH%s%s\x1b[0m", row, column, color, message)
 }
 
 func renderDashOverlay(hero player, width, height int) string {
